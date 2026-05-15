@@ -100,7 +100,7 @@ namespace SLQuest.VR
         private void HandleFly()
         {
             // Right stick click toggles fly
-            if (OVRInput.GetDown(OVRInput.Button.SecondaryThumbstick))
+            if (OVRInput.GetDown(OVRInput.Button.SecondaryThumbstick) && _avatar.FlightAllowed)
             {
                 bool flying = _avatar.MovementMode == AvatarMovementMode.Fly;
                 _avatar.SetMovementMode(flying ? AvatarMovementMode.Walk : AvatarMovementMode.Fly);

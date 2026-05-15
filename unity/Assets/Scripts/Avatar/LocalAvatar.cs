@@ -75,6 +75,15 @@ namespace SLQuest.Avatar
             animator?.SetBool(AnimSitting, sit);
         }
 
+        public bool FlightAllowed { get; private set; } = true;
+
+        public void SetFlightAllowed(bool allowed)
+        {
+            FlightAllowed = allowed;
+            if (!allowed && MovementMode == AvatarMovementMode.Fly)
+                SetMovementMode(AvatarMovementMode.Walk);
+        }
+
         // ── Physics & network sync ────────────────────────────────────────────
 
         private float _agentUpdateTimer;

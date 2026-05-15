@@ -47,9 +47,12 @@ namespace SLQuest.Core
         [SerializeField] private AppearanceBaker  appearanceBaker;
         [SerializeField] private NotificationManager notificationManager;
         [SerializeField] private FriendManager    friendManager;
-        [SerializeField] private SLQuest.World.LODSystem     lodSystem;
+        [SerializeField] private LSLBridge        lslBridge;
+        [SerializeField] private SLQuest.World.LODSystem      lodSystem;
+        [SerializeField] private SLQuest.World.ParcelManager   parcelManager;
+        [SerializeField] private SLQuest.World.LandmarkManager landmarkManager;
         [SerializeField] private SLQuest.Avatar.NameTagManager nameTagManager;
-        [SerializeField] private SLQuest.VR.LocomotionSystem locomotionSystem;
+        [SerializeField] private SLQuest.VR.LocomotionSystem  locomotionSystem;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
@@ -73,8 +76,11 @@ namespace SLQuest.Core
         public AppearanceBaker   Baker          => appearanceBaker;
         public NotificationManager          Notifications => notificationManager;
         public FriendManager                Friends       => friendManager;
-        public SLQuest.World.LODSystem      LOD           => lodSystem;
-        public SLQuest.Avatar.NameTagManager NameTags     => nameTagManager;
+        public LSLBridge                    LSL           => lslBridge;
+        public SLQuest.World.LODSystem       LOD           => lodSystem;
+        public SLQuest.World.ParcelManager    Parcels       => parcelManager;
+        public SLQuest.World.LandmarkManager  LandmarkMgr   => landmarkManager;
+        public SLQuest.Avatar.NameTagManager  NameTags      => nameTagManager;
         public SLQuest.VR.LocomotionSystem  Loco          => locomotionSystem;
 
         private void Awake()

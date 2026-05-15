@@ -152,8 +152,16 @@ namespace SLQuest.Core
 
         // ── Script permission request ─────────────────────────────────────────
 
+        // Only the permissions that LSLBridge doesn't auto-grant need a toast
+        private const ScriptPermission DangerousPerms =
+            ScriptPermission.ControlCamera |
+            ScriptPermission.TakeControls  |
+            ScriptPermission.TrackCamera;
+
         private void OnScriptQuestion(object sender, ScriptQuestionEventArgs e)
         {
+            if ((e.Questions & DangerousPerms) == 0) return; // LSLBridge auto-grants these
+
             MainThreadDispatcher.Enqueue(() =>
             {
                 var perm = e.Questions;

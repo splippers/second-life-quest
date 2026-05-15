@@ -118,7 +118,7 @@ namespace SLQuest.Scripting
             MainThreadDispatcher.Enqueue(() =>
             {
                 Debug.Log($"[LSL] Balance: L${e.Balance}");
-                // UI layer can subscribe to OnMoneyBalance if needed
+                EventBus.Publish(new BalanceUpdatedEvent(e.Balance));
             });
         }
 

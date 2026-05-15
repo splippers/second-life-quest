@@ -159,6 +159,25 @@ namespace SLQuest.Core
         public FriendPresenceChangedEvent(OpenMetaverse.UUID id, bool online) { FriendId = id; IsOnline = online; }
     }
 
+    public readonly struct ParcelChangedEvent
+    {
+        public readonly OpenMetaverse.Parcel Parcel;
+        public ParcelChangedEvent(OpenMetaverse.Parcel p) => Parcel = p;
+    }
+
+    public readonly struct BalanceUpdatedEvent
+    {
+        public readonly int Balance;
+        public BalanceUpdatedEvent(int b) => Balance = b;
+    }
+
+    public readonly struct LandmarkCreatedEvent
+    {
+        public readonly OpenMetaverse.UUID ItemId;
+        public readonly string             Name;
+        public LandmarkCreatedEvent(OpenMetaverse.UUID id, string n) { ItemId = id; Name = n; }
+    }
+
     // ── Bus implementation ───────────────────────────────────────────────────
 
     public static class EventBus
