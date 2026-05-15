@@ -13,22 +13,38 @@ namespace SLQuest.UI
         public static VRUIManager Instance { get; private set; }
 
         [Header("Panel Prefabs")]
-        [SerializeField] private LoginPanel      loginPanelPrefab;
-        [SerializeField] private ChatPanel       chatPanelPrefab;
-        [SerializeField] private InventoryPanel  inventoryPanelPrefab;
-        [SerializeField] private BuildPanel      buildPanelPrefab;
-        [SerializeField] private MapPanel        mapPanelPrefab;
+        [SerializeField] private LoginPanel       loginPanelPrefab;
+        [SerializeField] private ChatPanel        chatPanelPrefab;
+        [SerializeField] private InventoryPanel   inventoryPanelPrefab;
+        [SerializeField] private BuildPanel       buildPanelPrefab;
+        [SerializeField] private MapPanel         mapPanelPrefab;
+        [SerializeField] private FriendsPanel     friendsPanelPrefab;
+        [SerializeField] private GroupPanel       groupPanelPrefab;
+        [SerializeField] private SettingsPanel    settingsPanelPrefab;
+        [SerializeField] private TeleportPanel    teleportPanelPrefab;
+        [SerializeField] private LandmarkPanel    landmarkPanelPrefab;
+        [SerializeField] private GesturePanel     gesturePanelPrefab;
+        [SerializeField] private MarketplacePanel marketplacePanelPrefab;
+        [SerializeField] private NotificationToast notificationToastPrefab;
 
         [Header("Layout")]
         [SerializeField] private Transform panelRoot;
         [SerializeField] private float     panelDistance = 1.2f;
 
         // Live instances
-        public LoginPanel     LoginPanel     { get; private set; }
-        public ChatPanel      ChatPanel      { get; private set; }
-        public InventoryPanel InventoryPanel { get; private set; }
-        public BuildPanel     BuildPanel     { get; private set; }
-        public MapPanel       MapPanel       { get; private set; }
+        public LoginPanel       LoginPanel       { get; private set; }
+        public ChatPanel        ChatPanel        { get; private set; }
+        public InventoryPanel   InventoryPanel   { get; private set; }
+        public BuildPanel       BuildPanel       { get; private set; }
+        public MapPanel         MapPanel         { get; private set; }
+        public FriendsPanel     FriendsPanel     { get; private set; }
+        public GroupPanel       GroupPanel       { get; private set; }
+        public SettingsPanel    SettingsPanel    { get; private set; }
+        public TeleportPanel    TeleportPanel    { get; private set; }
+        public LandmarkPanel    LandmarkPanel    { get; private set; }
+        public GesturePanel     GesturePanel     { get; private set; }
+        public MarketplacePanel MarketplacePanel { get; private set; }
+        public NotificationToast NotificationToast { get; private set; }
 
         private readonly HashSet<MonoBehaviour> _visiblePanels = new();
 
@@ -58,6 +74,11 @@ namespace SLQuest.UI
         {
             HidePanel(LoginPanel);
             ShowChat();
+            // Ensure notification toast overlay is alive
+            if (NotificationToast == null && notificationToastPrefab != null)
+                NotificationToast = SpawnPanel(notificationToastPrefab, Vector3.zero);
+            if (NotificationToast != null)
+                NotificationToast.gameObject.SetActive(true);
         }
 
         private void OnLoggedOut(LoggedOutEvent _)
@@ -112,15 +133,77 @@ namespace SLQuest.UI
             SetVisible(MapPanel, true);
         }
 
+        public void ShowFriends()
+        {
+            if (FriendsPanel == null && friendsPanelPrefab != null)
+                FriendsPanel = SpawnPanel(friendsPanelPrefab, new Vector3(-0.6f, 0.2f, panelDistance));
+            SetVisible(FriendsPanel, true);
+        }
+
+        public void ShowGroups()
+        {
+            if (GroupPanel == null && groupPanelPrefab != null)
+                GroupPanel = SpawnPanel(groupPanelPrefab, new Vector3(0.6f, 0.2f, panelDistance));
+            SetVisible(GroupPanel, true);
+        }
+
+        public void ShowSettings()
+        {
+            if (SettingsPanel == null && settingsPanelPrefab != null)
+                SettingsPanel = SpawnPanel(settingsPanelPrefab, new Vector3(0f, 0.4f, panelDistance));
+            SetVisible(SettingsPanel, true);
+        }
+
+        public void ShowTeleport()
+        {
+            if (TeleportPanel == null && teleportPanelPrefab != null)
+                TeleportPanel = SpawnPanel(teleportPanelPrefab, new Vector3(0f, 0f, panelDistance));
+            SetVisible(TeleportPanel, true);
+        }
+
+        public void ShowLandmarks()
+        {
+            if (LandmarkPanel == null && landmarkPanelPrefab != null)
+                LandmarkPanel = SpawnPanel(landmarkPanelPrefab, new Vector3(-0.4f, 0f, panelDistance));
+            SetVisible(LandmarkPanel, true);
+        }
+
+        public void ShowGestures()
+        {
+            if (GesturePanel == null && gesturePanelPrefab != null)
+                GesturePanel = SpawnPanel(gesturePanelPrefab, new Vector3(0.4f, 0f, panelDistance));
+            SetVisible(GesturePanel, true);
+        }
+
+        public void ShowMarketplace()
+        {
+            if (MarketplacePanel == null && marketplacePanelPrefab != null)
+                MarketplacePanel = SpawnPanel(marketplacePanelPrefab, new Vector3(0f, -0.2f, panelDistance));
+            SetVisible(MarketplacePanel, true);
+        }
+
+        public void TogglePanel(MonoBehaviour panel)
+        {
+            if (panel == null) return;
+            SetVisible(panel, !panel.gameObject.activeSelf);
+        }
+
         public void HidePanel(MonoBehaviour panel) => SetVisible(panel, false);
 
         public void HideAll()
         {
-            SetVisible(LoginPanel,     false);
-            SetVisible(ChatPanel,      false);
-            SetVisible(InventoryPanel, false);
-            SetVisible(BuildPanel,     false);
-            SetVisible(MapPanel,       false);
+            SetVisible(LoginPanel,        false);
+            SetVisible(ChatPanel,         false);
+            SetVisible(InventoryPanel,    false);
+            SetVisible(BuildPanel,        false);
+            SetVisible(MapPanel,          false);
+            SetVisible(FriendsPanel,      false);
+            SetVisible(GroupPanel,        false);
+            SetVisible(SettingsPanel,     false);
+            SetVisible(TeleportPanel,     false);
+            SetVisible(LandmarkPanel,     false);
+            SetVisible(GesturePanel,      false);
+            SetVisible(MarketplacePanel,  false);
         }
 
         private void SetVisible(MonoBehaviour panel, bool visible)
