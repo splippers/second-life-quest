@@ -90,10 +90,12 @@ namespace SLQuest.Avatar
                     ? Instantiate(remoteAvatarPrefab, transform)
                     : new GameObject().AddComponent<RemoteAvatar>();
 
-                go.name = av.Name ?? av.ID.ToString();
+                go.name     = av.Name ?? av.ID.ToString();
+                go.AgentId  = av.ID;
                 _remotes[av.ID] = remote = go;
             }
 
+            remote.LocalId = av.LocalID;
             var pos = _region.LocalToUnity(av.Position, sim);
             var rot = _region.SLToUnityRotation(av.Rotation);
             remote.UpdateTransform(pos, rot);

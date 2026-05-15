@@ -10,7 +10,8 @@ namespace SLQuest.Avatar
     /// </summary>
     public sealed class RemoteAvatar : MonoBehaviour
     {
-        public uint LocalId { get; set; }
+        public uint   LocalId     { get; set; }
+        public UUID   AgentId     { get; set; }
         public string DisplayName { get; private set; }
 
         [SerializeField] private Animator animator;
