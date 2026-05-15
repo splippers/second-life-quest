@@ -79,6 +79,50 @@ namespace SLQuest.Core
         public TeleportEvent(string region, UnityEngine.Vector3 pos) { RegionName = region; Position = pos; }
     }
 
+    public readonly struct GroupListUpdatedEvent
+    {
+        public readonly OpenMetaverse.UUID GroupId;
+        public readonly string Name;
+        public GroupListUpdatedEvent(OpenMetaverse.UUID id, string name) { GroupId = id; Name = name; }
+    }
+
+    public readonly struct GroupJoinedEvent
+    {
+        public readonly OpenMetaverse.UUID GroupId;
+        public readonly string Name;
+        public GroupJoinedEvent(OpenMetaverse.UUID id, string name) { GroupId = id; Name = name; }
+    }
+
+    public readonly struct GroupLeftEvent
+    {
+        public readonly OpenMetaverse.UUID GroupId;
+        public GroupLeftEvent(OpenMetaverse.UUID id) => GroupId = id;
+    }
+
+    public readonly struct GroupChatMessageEvent
+    {
+        public readonly OpenMetaverse.UUID GroupId;
+        public readonly string GroupName;
+        public readonly string FromName;
+        public readonly string Message;
+        public GroupChatMessageEvent(OpenMetaverse.UUID gid, string gname, string from, string msg)
+        { GroupId = gid; GroupName = gname; FromName = from; Message = msg; }
+    }
+
+    public readonly struct RenderMaterialReadyEvent
+    {
+        public readonly uint PrimLocalId;
+        public RenderMaterialReadyEvent(uint id) => PrimLocalId = id;
+    }
+
+    public readonly struct MediaNavigateEvent
+    {
+        public readonly uint PrimLocalId;
+        public readonly int  FaceIndex;
+        public readonly string Url;
+        public MediaNavigateEvent(uint id, int face, string url) { PrimLocalId = id; FaceIndex = face; Url = url; }
+    }
+
     // ── Bus implementation ───────────────────────────────────────────────────
 
     public static class EventBus

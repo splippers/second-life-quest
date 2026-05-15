@@ -38,12 +38,13 @@ namespace SLQuest.Core
         [SerializeField] private VoiceManager voiceManager;
         [SerializeField] private VRRig vrRig;
         [SerializeField] private VRUIManager uiManager;
-        [SerializeField] private MaterialConverter materialConverter;
-        [SerializeField] private Network.CapabilityHandler capabilityHandler;
+        [SerializeField] private CapabilityHandler capabilityHandler;
+        [SerializeField] private GroupChatManager groupChatManager;
+        [SerializeField] private RenderMaterialsManager renderMaterialsManager;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
-        public Network.CapabilityHandler Caps => capabilityHandler;
+        public CapabilityHandler Caps => capabilityHandler;
         public LoginManager Login => loginManager;
         public RegionManager Region => regionManager;
         public ObjectManager Objects => objectManager;
@@ -57,7 +58,8 @@ namespace SLQuest.Core
         public VoiceManager Voice => voiceManager;
         public VRRig VR => vrRig;
         public VRUIManager UI => uiManager;
-        public MaterialConverter Materials => materialConverter;
+        public GroupChatManager GroupChats => groupChatManager;
+        public RenderMaterialsManager RenderMaterials => renderMaterialsManager;
 
         private void Awake()
         {

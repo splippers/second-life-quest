@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace SLQuest.Chat
 {
-    public enum ChatSource { Local, IM, Group, System }
+    public enum ChatSource { Local, IM, Group, System, GroupIM }
 
     public readonly struct ChatEntry
     {
@@ -115,6 +115,9 @@ namespace SLQuest.Chat
             if (!_net.IsInWorld) return;
             _net.Client.Self.InstantMessage(agentId, message);
         }
+
+        /// <summary>Allows external systems (e.g. GroupChatManager) to inject entries.</summary>
+        public void InjectEntry(ChatEntry entry) => Append(entry);
 
         private void Append(ChatEntry entry)
         {

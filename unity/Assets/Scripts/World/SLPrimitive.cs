@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using OpenMetaverse;
 using SLQuest.Assets;
+using SLQuest.Core;
 using SLQuest.Rendering;
 using UnityEngine;
 
@@ -18,11 +19,12 @@ namespace SLQuest.World
         public Guid FullId  { get; private set; }
         public Primitive Prim { get; private set; }
 
-        private MeshFilter   _meshFilter;
-        private MeshRenderer _meshRenderer;
-        private MeshCollider _meshCollider;
-        private AssetManager _assets;
-        private RegionManager _region;
+        private MeshFilter            _meshFilter;
+        private MeshRenderer          _meshRenderer;
+        private MeshCollider          _meshCollider;
+        private AssetManager          _assets;
+        private RegionManager         _region;
+        private RenderMaterialsManager _renderMaterials;
 
         // Physics interpolation
         private Vector3    _velocity;
@@ -30,9 +32,11 @@ namespace SLQuest.World
 
         private void Awake()
         {
-            _meshFilter   = GetComponent<MeshFilter>();
-            _meshRenderer = GetComponent<MeshRenderer>();
-            _meshCollider = GetComponent<MeshCollider>();
+            _meshFilter      = GetComponent<MeshFilter>();
+            _meshRenderer    = GetComponent<MeshRenderer>();
+            _meshCollider    = GetComponent<MeshCollider>();
+            _renderMaterials = SLApplication.Instance?.RenderMaterials
+                               ?? FindObjectOfType<RenderMaterialsManager>();
         }
 
         public void Initialise(Primitive prim, Simulator sim,
@@ -102,16 +106,17 @@ namespace SLQuest.World
             _meshCollider.sharedMesh = mesh;
         }
 
-        // ── Textures ──────────────────────────────────────────────────────────
+        // ── Textures / PBSM / Media ───────────────────────────────────────────
 
         private IEnumerator ApplyTextures(Primitive prim)
         {
             if (prim.Textures == null) yield break;
 
-            var te = prim.Textures;
-            var materials = new Material[prim.Textures.FaceTextures.Length];
+            var te        = prim.Textures;
+            int faceCount = prim.Textures.FaceTextures.Length;
+            var materials = new Material[faceCount];
 
-            for (int f = 0; f < prim.Textures.FaceTextures.Length; f++)
+            for (int f = 0; f < faceCount; f++)
             {
                 var face = te.FaceTextures[f] ?? te.DefaultTexture;
                 if (face == null) { materials[f] = MaterialConverter.DefaultMaterial(); continue; }
@@ -120,9 +125,71 @@ namespace SLQuest.World
                 yield return new WaitUntil(() => texHandle.IsReady);
 
                 materials[f] = MaterialConverter.FromFace(face, texHandle.Texture);
+
+                // Attach media surface if this face has media
+                if (face.MediaFlags)
+                    AttachMediaSurface(f);
+
+                // Request PBSM data if the face has a RenderMaterial assigned
+                if (face.RenderMaterialID != UUID.Zero && _renderMaterials != null)
+                    RequestPBSM(f, face.RenderMaterialID, materials);
             }
 
             _meshRenderer.materials = materials;
+        }
+
+        private void AttachMediaSurface(int faceIndex)
+        {
+            // Avoid duplicates
+            var existing = GetComponents<MediaSurface>();
+            foreach (var ms in existing)
+                if (ms.FaceIndex == faceIndex) return;
+
+            var surf = gameObject.AddComponent<MediaSurface>();
+            surf.FaceIndex = faceIndex;
+        }
+
+        private void RequestPBSM(int faceIndex, UUID renderMatId, Material[] materials)
+        {
+            _renderMaterials.RequestMaterial(renderMatId, pbsm =>
+            {
+                // Fetch normal map, then apply
+                if (pbsm.NormMapId != UUID.Zero && _assets != null)
+                {
+                    var normHandle = _assets.RequestTexture(pbsm.NormMapId);
+                    StartCoroutine(ApplyPBSMWhenReady(faceIndex, pbsm, normHandle));
+                }
+                else
+                {
+                    MaterialConverter.ApplyPBSM(materials[faceIndex], pbsm, null, null);
+                    _meshRenderer.materials = materials;
+                }
+            });
+        }
+
+        private IEnumerator ApplyPBSMWhenReady(int faceIndex, PBSMaterial pbsm,
+                                                TextureHandle normHandle)
+        {
+            yield return new WaitUntil(() => normHandle.IsReady);
+
+            // Fetch optional specular map
+            TextureHandle specHandle = null;
+            if (pbsm.SpecMapId != UUID.Zero)
+            {
+                specHandle = _assets.RequestTexture(pbsm.SpecMapId);
+                yield return new WaitUntil(() => specHandle.IsReady);
+            }
+
+            if (faceIndex < _meshRenderer.materials.Length)
+            {
+                MaterialConverter.ApplyPBSM(
+                    _meshRenderer.materials[faceIndex],
+                    pbsm,
+                    normHandle.Texture,
+                    specHandle?.Texture);
+            }
+
+            EventBus.Publish(new RenderMaterialReadyEvent(LocalId));
         }
     }
 }

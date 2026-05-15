@@ -3,6 +3,8 @@ using UnityEngine;
 
 namespace SLQuest.Rendering
 {
+    // Shader property IDs for URP normal/specular PBR inputs
+    // (declared alongside the existing IDs below)
     /// <summary>
     /// Converts a Second Life face's <see cref="Primitive.TextureEntryFace"/> into
     /// a Unity URP <see cref="Material"/>.
@@ -18,14 +20,18 @@ namespace SLQuest.Rendering
     /// </summary>
     public static class MaterialConverter
     {
-        private static readonly int _BaseMap      = Shader.PropertyToID("_BaseMap");
-        private static readonly int _BaseColor    = Shader.PropertyToID("_BaseColor");
-        private static readonly int _EmissionMap  = Shader.PropertyToID("_EmissionMap");
-        private static readonly int _EmissionColor= Shader.PropertyToID("_EmissionColor");
-        private static readonly int _Smoothness   = Shader.PropertyToID("_Smoothness");
-        private static readonly int _Metallic     = Shader.PropertyToID("_Metallic");
-        private static readonly int _BumpMap      = Shader.PropertyToID("_BumpMap");
-        private static readonly int _Cull         = Shader.PropertyToID("_Cull");
+        private static readonly int _BaseMap       = Shader.PropertyToID("_BaseMap");
+        private static readonly int _BaseColor     = Shader.PropertyToID("_BaseColor");
+        private static readonly int _EmissionMap   = Shader.PropertyToID("_EmissionMap");
+        private static readonly int _EmissionColor = Shader.PropertyToID("_EmissionColor");
+        private static readonly int _Smoothness    = Shader.PropertyToID("_Smoothness");
+        private static readonly int _Metallic      = Shader.PropertyToID("_Metallic");
+        private static readonly int _BumpMap       = Shader.PropertyToID("_BumpMap");
+        private static readonly int _BumpScale     = Shader.PropertyToID("_BumpScale");
+        private static readonly int _SpecColor     = Shader.PropertyToID("_SpecColor");
+        private static readonly int _Cull          = Shader.PropertyToID("_Cull");
+        private static readonly int _AlphaClip     = Shader.PropertyToID("_AlphaClip");
+        private static readonly int _Cutoff        = Shader.PropertyToID("_Cutoff");
 
         // Cached shader reference (URP Lit)
         private static Shader _litShader;
@@ -73,6 +79,53 @@ namespace SLQuest.Rendering
             mat.SetFloat(_Metallic, 0f);
 
             return mat;
+        }
+
+        /// <summary>
+        /// Apply PBSM data (normal map, specular, env reflection) to an existing material.
+        /// Called after the initial diffuse material is created and the normal-map texture
+        /// has been downloaded by RenderMaterialsManager.
+        /// </summary>
+        public static void ApplyPBSM(Material mat, PBSMaterial pbsm,
+                                     Texture2D normTex, Texture2D specTex)
+        {
+            if (mat == null) return;
+
+            // Normal map
+            if (normTex != null)
+            {
+                mat.EnableKeyword("_NORMALMAP");
+                mat.SetTexture(_BumpMap, normTex);
+                mat.SetTextureScale(_BumpMap, new Vector2(pbsm.NormRepeatU, pbsm.NormRepeatV));
+                mat.SetTextureOffset(_BumpMap, new Vector2(pbsm.NormOffsetU, pbsm.NormOffsetV));
+                mat.SetFloat(_BumpScale, 1f);
+            }
+
+            // Specular tint → SpecColor (URP Lit uses _SpecColor in specular workflow)
+            var sc = pbsm.SpecColor;
+            mat.SetColor(_SpecColor, new Color(sc.R, sc.G, sc.B, sc.A));
+
+            // Map SL specular exponent (0-1) to URP Smoothness (0-1)
+            mat.SetFloat(_Smoothness, pbsm.SpecExponent);
+
+            // Environment reflection intensity → Metallic as a rough proxy
+            mat.SetFloat(_Metallic, pbsm.EnvIntensity * 0.5f);
+
+            // Alpha mode
+            if (pbsm.AlphaMode == DiffuseAlphaMode.Mask)
+            {
+                mat.EnableKeyword("_ALPHATEST_ON");
+                mat.SetFloat(_AlphaClip, 1f);
+                mat.SetFloat(_Cutoff, pbsm.AlphaCutoff);
+            }
+
+            // Specular map (if present, set as emission map for now — full specular workflow
+            // requires URP Lit in Specular mode which needs a material variant)
+            if (specTex != null)
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.SetTexture(_EmissionMap, specTex);
+            }
         }
 
         public static Material DefaultMaterial()
