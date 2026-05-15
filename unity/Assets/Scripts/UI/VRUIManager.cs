@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using OpenMetaverse;
 using UnityEngine;
 using SLQuest.Core;
 
@@ -26,6 +27,7 @@ namespace SLQuest.UI
         [SerializeField] private GesturePanel     gesturePanelPrefab;
         [SerializeField] private MarketplacePanel marketplacePanelPrefab;
         [SerializeField] private NotificationToast notificationToastPrefab;
+        [SerializeField] private IMPanel          imPanelPrefab;
 
         [Header("Layout")]
         [SerializeField] private Transform panelRoot;
@@ -45,6 +47,7 @@ namespace SLQuest.UI
         public GesturePanel     GesturePanel     { get; private set; }
         public MarketplacePanel MarketplacePanel { get; private set; }
         public NotificationToast NotificationToast { get; private set; }
+        public IMPanel          IMPanel           { get; private set; }
 
         private readonly HashSet<MonoBehaviour> _visiblePanels = new();
 
@@ -182,6 +185,15 @@ namespace SLQuest.UI
             SetVisible(MarketplacePanel, true);
         }
 
+        public void ShowIM(OpenMetaverse.UUID agentId = default, string displayName = "")
+        {
+            if (IMPanel == null && imPanelPrefab != null)
+                IMPanel = SpawnPanel(imPanelPrefab, new Vector3(-0.3f, 0.1f, panelDistance));
+            SetVisible(IMPanel, true);
+            if (agentId != OpenMetaverse.UUID.Zero)
+                IMPanel?.OpenConversation(agentId, displayName);
+        }
+
         public void TogglePanel(MonoBehaviour panel)
         {
             if (panel == null) return;
@@ -204,6 +216,7 @@ namespace SLQuest.UI
             SetVisible(LandmarkPanel,     false);
             SetVisible(GesturePanel,      false);
             SetVisible(MarketplacePanel,  false);
+            SetVisible(IMPanel,           false);
         }
 
         private void SetVisible(MonoBehaviour panel, bool visible)

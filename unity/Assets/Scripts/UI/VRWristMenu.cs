@@ -37,6 +37,7 @@ namespace SLQuest.UI
 
         [Header("Buttons")]
         [SerializeField] private Button chatButton;
+        [SerializeField] private Button imButton;
         [SerializeField] private Button inventoryButton;
         [SerializeField] private Button friendsButton;
         [SerializeField] private Button mapButton;
@@ -60,6 +61,7 @@ namespace SLQuest.UI
             _net = SLApplication.Instance?.Network ?? FindObjectOfType<SLNetworkManager>();
 
             Wire(chatButton,        () => VRUIManager.Instance?.ShowChat());
+            Wire(imButton,          () => VRUIManager.Instance?.ShowIM());
             Wire(inventoryButton,   () => VRUIManager.Instance?.ShowInventory());
             Wire(friendsButton,     () => VRUIManager.Instance?.ShowFriends());
             Wire(mapButton,         () => VRUIManager.Instance?.ShowMap());

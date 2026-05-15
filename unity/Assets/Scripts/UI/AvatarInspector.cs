@@ -119,7 +119,9 @@ namespace SLQuest.UI
 
         private void OnIM()
         {
-            _friends?.SendIM(_agentId, string.Empty);
+            var name = nameLabel != null ? nameLabel.text : _agentId.ToString();
+            VRUIManager.Instance?.ShowIM(_agentId, name);
+            Destroy(gameObject);
         }
 
         private void OnToggleFriend()
