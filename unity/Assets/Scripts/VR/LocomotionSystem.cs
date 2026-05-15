@@ -28,6 +28,12 @@ namespace SLQuest.VR
         [SerializeField] private bool vignetteOnMove = true;
         [SerializeField] private VignetteController vignette;
 
+        // ── Runtime setters for SettingsPanel ─────────────────────────────────
+        public LocomotionMode TurnMode        { get => turnMode;       set => turnMode = value; }
+        public float          SnapAngle       { get => snapAngle;      set => snapAngle = value; }
+        public float          SmoothTurnSpeed { get => smoothTurnSpeed; set => smoothTurnSpeed = value; }
+        public bool           VignetteOnMove  { get => vignetteOnMove; set { vignetteOnMove = value; if (!value) vignette?.SetStrength(0f); } }
+
         private LocalAvatar _avatar;
         private VRRig       _rig;
 

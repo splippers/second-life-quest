@@ -47,6 +47,9 @@ namespace SLQuest.Core
         [SerializeField] private AppearanceBaker  appearanceBaker;
         [SerializeField] private NotificationManager notificationManager;
         [SerializeField] private FriendManager    friendManager;
+        [SerializeField] private SLQuest.World.LODSystem     lodSystem;
+        [SerializeField] private SLQuest.Avatar.NameTagManager nameTagManager;
+        [SerializeField] private SLQuest.VR.LocomotionSystem locomotionSystem;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
@@ -68,8 +71,11 @@ namespace SLQuest.Core
         public RenderMaterialsManager RenderMaterials => renderMaterialsManager;
         public GestureManager    Gestures       => gestureManager;
         public AppearanceBaker   Baker          => appearanceBaker;
-        public NotificationManager Notifications => notificationManager;
-        public FriendManager     Friends        => friendManager;
+        public NotificationManager          Notifications => notificationManager;
+        public FriendManager                Friends       => friendManager;
+        public SLQuest.World.LODSystem      LOD           => lodSystem;
+        public SLQuest.Avatar.NameTagManager NameTags     => nameTagManager;
+        public SLQuest.VR.LocomotionSystem  Loco          => locomotionSystem;
 
         private void Awake()
         {

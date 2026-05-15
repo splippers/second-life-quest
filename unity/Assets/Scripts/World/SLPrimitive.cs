@@ -30,6 +30,8 @@ namespace SLQuest.World
         private Vector3    _velocity;
         private Vector3    _angularVelocity;
 
+        private LODSystem _lod;
+
         private void Awake()
         {
             _meshFilter      = GetComponent<MeshFilter>();
@@ -37,7 +39,12 @@ namespace SLQuest.World
             _meshCollider    = GetComponent<MeshCollider>();
             _renderMaterials = SLApplication.Instance?.RenderMaterials
                                ?? FindObjectOfType<RenderMaterialsManager>();
+            _lod             = SLApplication.Instance?.LOD ?? FindObjectOfType<LODSystem>();
         }
+
+        private void OnEnable()  => _lod?.Register(this);
+        private void OnDisable() => _lod?.Unregister(this);
+        private void OnDestroy() => _lod?.Unregister(this);
 
         public void Initialise(Primitive prim, Simulator sim,
                                RegionManager region, AssetManager assets)
