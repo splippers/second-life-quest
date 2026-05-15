@@ -39,9 +39,11 @@ namespace SLQuest.Core
         [SerializeField] private VRRig vrRig;
         [SerializeField] private VRUIManager uiManager;
         [SerializeField] private MaterialConverter materialConverter;
+        [SerializeField] private Network.CapabilityHandler capabilityHandler;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
+        public Network.CapabilityHandler Caps => capabilityHandler;
         public LoginManager Login => loginManager;
         public RegionManager Region => regionManager;
         public ObjectManager Objects => objectManager;

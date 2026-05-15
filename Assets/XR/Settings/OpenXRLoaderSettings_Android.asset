@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CoroutineID: 3
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0e94f239f3b5884f92fd9b0bcd12ad8, type: 3}
+  m_Name: OpenXRLoaderSettings_Android
+  m_EditorClassIdentifier: UnityEngine.XR.OpenXR.OpenXRLoader
+  features:
+  # Meta Quest Feature Set — enables hand tracking, passthrough, multi-view, FFR
+  - {fileID: 11400000, guid: b14f0b41e1f0a9f4381b9f0d0a4a3a1b, type: 2}
+  # Meta Hand Tracking
+  - {fileID: 11400000, guid: 74cca6b3e1a4b3b498ea6e12a0f83f2c, type: 2}
+  # Eye Tracking
+  - {fileID: 11400000, guid: a9b7c2d4e5f6a1b2c3d4e5f6a7b8c9d0, type: 2}
+  renderMode: 2
+  depthSubmissionMode: 0

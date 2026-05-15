@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CoroutineID: 3
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 15d99b64e06d6c243a1da6b40a795920, type: 3}
+  m_Name: XRGeneralSettings_Android
+  m_EditorClassIdentifier: Unity.XR.Management.XRGeneralSettings
+  m_LoaderList:
+  - {fileID: 11400000, guid: a0e94f239f3b5884f92fd9b0bcd12ad8, type: 2}
+  m_InitManagerOnStart: 1

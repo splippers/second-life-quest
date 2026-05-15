@@ -2,8 +2,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using CoreJ2K;
 using OpenMetaverse;
 using OpenMetaverse.Assets;
+using SkiaSharp;
 using SLQuest.Core;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -95,7 +97,7 @@ namespace SLQuest.Assets
             }
 
             // 2. HTTP capability
-            var caps = SLApplication.Instance?.GetComponent<Network.CapabilityHandler>();
+            var caps = SLApplication.Instance?.Caps;
             if (caps != null && caps.TryGetCap("GetTexture", out var capUri))
             {
                 string url = $"{capUri}?texture_id={id}";
@@ -149,15 +151,32 @@ namespace SLQuest.Assets
         {
             try
             {
-                // Use libopenmetaverse's J2K decoder
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true);
-                if (OpenMetaverse.Imaging.OpenJPEG.DecodeToImage(j2kData, out var image))
+                // CoreJ2K.Skia decodes JPEG2000 → SKBitmap on Android/ARM64
+                var skBitmap = J2kImage.FromBytes(j2kData).As<SKBitmap>();
+                if (skBitmap == null)
                 {
-                    tex.Reinitialize(image.Width, image.Height);
-                    tex.SetPixels32(ConvertPixels(image));
-                    tex.Apply(true);
-                    tex.name = name;
+                    Debug.LogWarning($"[Assets] J2K decode returned null for {name}");
+                    return Texture2D.whiteTexture;
                 }
+
+                int w = skBitmap.Width, h = skBitmap.Height;
+                var tex = new Texture2D(w, h, TextureFormat.RGBA32, true) { name = name };
+                var pixels = new Color32[w * h];
+
+                unsafe
+                {
+                    byte* ptr = (byte*)skBitmap.GetPixels().ToPointer();
+                    // SkiaSharp default colour type is BGRA_8888
+                    for (int i = 0; i < pixels.Length; i++)
+                    {
+                        int o = i * 4;
+                        pixels[i] = new Color32(ptr[o + 2], ptr[o + 1], ptr[o + 0], ptr[o + 3]);
+                    }
+                }
+
+                tex.SetPixels32(pixels);
+                tex.Apply(true);
+                skBitmap.Dispose();
                 return tex;
             }
             catch (Exception ex)
@@ -165,20 +184,6 @@ namespace SLQuest.Assets
                 Debug.LogWarning($"[Assets] J2K decode failed for {name}: {ex.Message}");
                 return Texture2D.whiteTexture;
             }
-        }
-
-        private static Color32[] ConvertPixels(OpenMetaverse.Imaging.ManagedImage img)
-        {
-            var pixels = new Color32[img.Width * img.Height];
-            bool hasAlpha = (img.Channels & OpenMetaverse.Imaging.ManagedImage.ImageChannels.Alpha) != 0;
-
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                pixels[i] = new Color32(
-                    img.Red[i], img.Green[i], img.Blue[i],
-                    hasAlpha ? img.Alpha[i] : (byte)255);
-            }
-            return pixels;
         }
 
         // ── Mesh pipeline ─────────────────────────────────────────────────────
@@ -195,7 +200,7 @@ namespace SLQuest.Assets
             }
             else
             {
-                var caps = SLApplication.Instance?.GetComponent<Network.CapabilityHandler>();
+                var caps = SLApplication.Instance?.Caps;
                 if (caps != null && caps.TryGetCap("GetMesh2", out var capUri))
                 {
                     string url = $"{capUri}?mesh_id={id}";

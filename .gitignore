@@ -36,11 +36,12 @@ ExportedObj/
 *.unitypackage
 *.app
 
-# NuGet
+# NuGet / package cache
 /Assets/NuGet.meta
 /Assets/NuGet/
 nuget.exe
 Packages/packages.lock.json
+/.nuget-cache/
 
 # Credentials — never commit
 Assets/Resources/credentials.json
