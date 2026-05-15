@@ -37,20 +37,29 @@ namespace SLQuest.UI
         [Header("Avatars")]
         [SerializeField] private Toggle nameTagToggle;
 
+        [Header("Audio")]
+        [SerializeField] private Slider musicVolumeSlider;
+        [SerializeField] private Slider spatialVolumeSlider;
+        [SerializeField] private Toggle musicMuteToggle;
+
         [Header("Controls")]
         [SerializeField] private Button closeButton;
 
-        private LODSystem       _lod;
-        private LocomotionSystem _loco;
-        private NameTagManager  _nameTags;
+        private LODSystem          _lod;
+        private LocomotionSystem   _loco;
+        private NameTagManager     _nameTags;
+        private RegionAudioManager _regionAudio;
+        private SpatialAudioManager _spatialAudio;
 
         private static readonly float[] SnapAngles = { 15f, 30f, 45f, 60f };
 
         private void Awake()
         {
-            _lod      = SLApplication.Instance?.LOD      ?? FindObjectOfType<LODSystem>();
-            _loco     = SLApplication.Instance?.Loco     ?? FindObjectOfType<LocomotionSystem>();
-            _nameTags = SLApplication.Instance?.NameTags ?? FindObjectOfType<NameTagManager>();
+            _lod          = SLApplication.Instance?.LOD         ?? FindObjectOfType<LODSystem>();
+            _loco         = SLApplication.Instance?.Loco        ?? FindObjectOfType<LocomotionSystem>();
+            _nameTags     = SLApplication.Instance?.NameTags    ?? FindObjectOfType<NameTagManager>();
+            _regionAudio  = SLApplication.Instance?.RegionAudio ?? FindObjectOfType<RegionAudioManager>();
+            _spatialAudio = SLApplication.Instance?.SpatialAudio ?? FindObjectOfType<SpatialAudioManager>();
 
             closeButton?.onClick.AddListener(() => gameObject.SetActive(false));
         }
@@ -95,6 +104,13 @@ namespace SLQuest.UI
 
             if (nameTagToggle != null && _nameTags != null)
                 nameTagToggle.isOn = _nameTags.Visible;
+
+            if (musicVolumeSlider != null && _regionAudio != null)
+                musicVolumeSlider.value = _regionAudio.Volume;
+            if (spatialVolumeSlider != null && _spatialAudio != null)
+                spatialVolumeSlider.value = _spatialAudio.MasterVolume;
+            if (musicMuteToggle != null && _regionAudio != null)
+                musicMuteToggle.isOn = _regionAudio.IsMuted;
         }
 
         // ── Callbacks ─────────────────────────────────────────────────────────
@@ -107,6 +123,9 @@ namespace SLQuest.UI
             snapAngleDropdown?.onValueChanged.AddListener(OnSnapAngle);
             vignetteToggle?.onValueChanged.AddListener(OnVignette);
             nameTagToggle?.onValueChanged.AddListener(OnNameTags);
+            musicVolumeSlider?.onValueChanged.AddListener(v => { if (_regionAudio != null) _regionAudio.Volume = v; });
+            spatialVolumeSlider?.onValueChanged.AddListener(v => { if (_spatialAudio != null) _spatialAudio.MasterVolume = v; });
+            musicMuteToggle?.onValueChanged.AddListener(on => _regionAudio?.SetMuted(on));
         }
 
         private void UnwireCallbacks()
@@ -117,6 +136,9 @@ namespace SLQuest.UI
             snapAngleDropdown?.onValueChanged.RemoveListener(OnSnapAngle);
             vignetteToggle?.onValueChanged.RemoveListener(OnVignette);
             nameTagToggle?.onValueChanged.RemoveListener(OnNameTags);
+            musicVolumeSlider?.onValueChanged.RemoveAllListeners();
+            spatialVolumeSlider?.onValueChanged.RemoveAllListeners();
+            musicMuteToggle?.onValueChanged.RemoveAllListeners();
         }
 
         // ── Handlers ──────────────────────────────────────────────────────────
