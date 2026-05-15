@@ -30,6 +30,7 @@ namespace SLQuest.UI
         [SerializeField] private IMPanel          imPanelPrefab;
         [SerializeField] private SearchPanel     searchPanelPrefab;
         [SerializeField] private VoicePanel      voicePanelPrefab;
+        [SerializeField] private GroupChatPanel  groupChatPanelPrefab;
 
         [Header("Layout")]
         [SerializeField] private Transform panelRoot;
@@ -52,6 +53,7 @@ namespace SLQuest.UI
         public IMPanel          IMPanel           { get; private set; }
         public SearchPanel      SearchPanel       { get; private set; }
         public VoicePanel       VoicePanel        { get; private set; }
+        public GroupChatPanel   GroupChatPanel    { get; private set; }
 
         private readonly HashSet<MonoBehaviour> _visiblePanels = new();
 
@@ -203,6 +205,13 @@ namespace SLQuest.UI
             SetVisible(VoicePanel, true);
         }
 
+        public void ShowGroupChat()
+        {
+            if (GroupChatPanel == null && groupChatPanelPrefab != null)
+                GroupChatPanel = SpawnPanel(groupChatPanelPrefab, new Vector3(-0.5f, 0f, panelDistance));
+            SetVisible(GroupChatPanel, true);
+        }
+
         public void ShowIM(OpenMetaverse.UUID agentId = default, string displayName = "")
         {
             if (IMPanel == null && imPanelPrefab != null)
@@ -237,6 +246,7 @@ namespace SLQuest.UI
             SetVisible(IMPanel,           false);
             SetVisible(SearchPanel,       false);
             SetVisible(VoicePanel,        false);
+            SetVisible(GroupChatPanel,    false);
         }
 
         private void SetVisible(MonoBehaviour panel, bool visible)

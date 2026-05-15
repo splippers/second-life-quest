@@ -43,6 +43,7 @@ namespace SLQuest.UI
         [SerializeField] private Button mapButton;
         [SerializeField] private Button teleportButton;
         [SerializeField] private Button groupsButton;
+        [SerializeField] private Button groupChatButton;
         [SerializeField] private Button settingsButton;
         [SerializeField] private Button marketplaceButton;
         [SerializeField] private Button landmarksButton;
@@ -69,6 +70,7 @@ namespace SLQuest.UI
             Wire(mapButton,         () => VRUIManager.Instance?.ShowMap());
             Wire(teleportButton,    () => VRUIManager.Instance?.ShowTeleport());
             Wire(groupsButton,      () => VRUIManager.Instance?.ShowGroups());
+            Wire(groupChatButton,   () => VRUIManager.Instance?.ShowGroupChat());
             Wire(settingsButton,    () => VRUIManager.Instance?.ShowSettings());
             Wire(marketplaceButton, () => VRUIManager.Instance?.ShowMarketplace());
             Wire(landmarksButton,   () => VRUIManager.Instance?.ShowLandmarks());
