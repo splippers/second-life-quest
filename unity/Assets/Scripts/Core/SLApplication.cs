@@ -42,7 +42,8 @@ namespace SLQuest.Core
         [SerializeField] private CapabilityHandler capabilityHandler;
         [SerializeField] private GroupChatManager groupChatManager;
         [SerializeField] private RenderMaterialsManager renderMaterialsManager;
-        [SerializeField] private GestureManager gestureManager;
+        [SerializeField] private GestureManager   gestureManager;
+        [SerializeField] private AppearanceBaker  appearanceBaker;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
@@ -62,7 +63,8 @@ namespace SLQuest.Core
         public VRUIManager UI => uiManager;
         public GroupChatManager GroupChats => groupChatManager;
         public RenderMaterialsManager RenderMaterials => renderMaterialsManager;
-        public GestureManager Gestures => gestureManager;
+        public GestureManager   Gestures        => gestureManager;
+        public AppearanceBaker  Baker           => appearanceBaker;
 
         private void Awake()
         {

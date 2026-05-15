@@ -130,6 +130,15 @@ namespace SLQuest.Core
         public GestureTriggeredEvent(OpenMetaverse.UUID id, string name) { ItemId = id; Name = name; }
     }
 
+    public readonly struct BakeCompleteEvent { }
+
+    public readonly struct EstateInfoReceivedEvent
+    {
+        public readonly string EstateName;
+        public readonly OpenMetaverse.UUID OwnerId;
+        public EstateInfoReceivedEvent(string name, OpenMetaverse.UUID owner) { EstateName = name; OwnerId = owner; }
+    }
+
     // ── Bus implementation ───────────────────────────────────────────────────
 
     public static class EventBus

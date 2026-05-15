@@ -152,11 +152,11 @@ Unity Vivox SDK (`com.unity.vivox`) is declared in `Packages/manifest.json`.
 | Script dialogs / permissions | ✅ |
 | Gesture playback | ✅ GestureManager: F-key + chat triggers, coroutine step playback |
 | In-world media surfaces | ✅ VideoPlayer/RenderTexture via ObjectMedia cap |
-| Marketplace browser | 🔲 TODO |
+| Marketplace browser | ✅ JSON search API, async thumbnails, Quest browser handoff |
 | Group chat | ✅ ChatSessionRequest cap, tabbed ChatPanel |
-| Estate tools | 🔲 TODO |
+| Estate tools | ✅ EstatePanel: info, avatar list, kick/ban/teleport-home, live stats |
 | PBSM (Physically Based materials via RenderMaterials cap) | ✅ RenderMaterialsManager, per-face PBSMaterial |
-| Client-side avatar baking | 🔲 TODO |
+| Client-side avatar baking | ✅ AppearanceBaker: wearable layer composite, CPU alpha-over |
 
 ## License
 This project is not affiliated with or endorsed by Linden Research, Inc.  
