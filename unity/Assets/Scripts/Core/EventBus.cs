@@ -123,6 +123,13 @@ namespace SLQuest.Core
         public MediaNavigateEvent(uint id, int face, string url) { PrimLocalId = id; FaceIndex = face; Url = url; }
     }
 
+    public readonly struct GestureTriggeredEvent
+    {
+        public readonly OpenMetaverse.UUID ItemId;
+        public readonly string Name;
+        public GestureTriggeredEvent(OpenMetaverse.UUID id, string name) { ItemId = id; Name = name; }
+    }
+
     // ── Bus implementation ───────────────────────────────────────────────────
 
     public static class EventBus

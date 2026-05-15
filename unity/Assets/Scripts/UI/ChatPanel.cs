@@ -4,6 +4,7 @@ using OpenMetaverse;
 using TMPro;
 using SLQuest.Chat;
 using SLQuest.Core;
+using SLQuest.Scripting;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -66,6 +67,7 @@ namespace SLQuest.UI
 
         private ChatManager      _chat;
         private GroupChatManager _groups;
+        private GestureManager   _gestures;
 
         private readonly Queue<TMP_Text> _localRows  = new();
         private readonly Queue<TMP_Text> _groupRows  = new();
@@ -78,8 +80,9 @@ namespace SLQuest.UI
 
         private void Awake()
         {
-            _chat   = SLApplication.Instance?.Chat       ?? FindObjectOfType<ChatManager>();
-            _groups = SLApplication.Instance?.GroupChats ?? FindObjectOfType<GroupChatManager>();
+            _chat     = SLApplication.Instance?.Chat       ?? FindObjectOfType<ChatManager>();
+            _groups   = SLApplication.Instance?.GroupChats ?? FindObjectOfType<GroupChatManager>();
+            _gestures = SLApplication.Instance?.Gestures   ?? FindObjectOfType<GestureManager>();
 
             localSend?.onClick.AddListener(OnLocalSend);
             localInput?.onEndEdit.AddListener(_ =>
@@ -228,6 +231,12 @@ namespace SLQuest.UI
             string text = localInput.text.Trim();
             if (string.IsNullOrEmpty(text)) return;
 
+            localInput.text = string.Empty;
+
+            // Let gesture manager consume exact trigger phrases before they hit the network
+            if (_gestures != null && _gestures.TryInterceptChat(text))
+                return;
+
             if (text.StartsWith("/me ", StringComparison.OrdinalIgnoreCase))
                 _chat?.Say(text[4..], 0, OpenMetaverse.ChatType.Emote);
             else if (text.StartsWith("/shout ", StringComparison.OrdinalIgnoreCase))
@@ -236,8 +245,6 @@ namespace SLQuest.UI
                 _chat?.Say(text[9..], 0, OpenMetaverse.ChatType.Whisper);
             else
                 _chat?.Say(text);
-
-            localInput.text = string.Empty;
         }
     }
 }

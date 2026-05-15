@@ -9,6 +9,7 @@ using SLQuest.Voice;
 using SLQuest.VR;
 using SLQuest.UI;
 using SLQuest.Rendering;
+using SLQuest.Scripting;
 using UnityEngine;
 
 namespace SLQuest.Core
@@ -41,6 +42,7 @@ namespace SLQuest.Core
         [SerializeField] private CapabilityHandler capabilityHandler;
         [SerializeField] private GroupChatManager groupChatManager;
         [SerializeField] private RenderMaterialsManager renderMaterialsManager;
+        [SerializeField] private GestureManager gestureManager;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
@@ -60,6 +62,7 @@ namespace SLQuest.Core
         public VRUIManager UI => uiManager;
         public GroupChatManager GroupChats => groupChatManager;
         public RenderMaterialsManager RenderMaterials => renderMaterialsManager;
+        public GestureManager Gestures => gestureManager;
 
         private void Awake()
         {

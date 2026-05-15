@@ -150,12 +150,12 @@ Unity Vivox SDK (`com.unity.vivox`) is declared in `Packages/manifest.json`.
 | Avatar appearance / baked textures | ✅ Fetches server bakes; client baking TODO |
 | Voice (Vivox positional) | ✅ |
 | Script dialogs / permissions | ✅ |
-| Gesture playback | 🔲 TODO |
-| In-world media surfaces | 🔲 TODO |
+| Gesture playback | ✅ GestureManager: F-key + chat triggers, coroutine step playback |
+| In-world media surfaces | ✅ VideoPlayer/RenderTexture via ObjectMedia cap |
 | Marketplace browser | 🔲 TODO |
-| Group chat | 🔲 TODO |
+| Group chat | ✅ ChatSessionRequest cap, tabbed ChatPanel |
 | Estate tools | 🔲 TODO |
-| PBSM (Physically Based materials via RenderMaterials cap) | 🔲 TODO |
+| PBSM (Physically Based materials via RenderMaterials cap) | ✅ RenderMaterialsManager, per-face PBSMaterial |
 | Client-side avatar baking | 🔲 TODO |
 
 ## License
