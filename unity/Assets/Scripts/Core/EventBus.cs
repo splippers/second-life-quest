@@ -139,6 +139,26 @@ namespace SLQuest.Core
         public EstateInfoReceivedEvent(string name, OpenMetaverse.UUID owner) { EstateName = name; OwnerId = owner; }
     }
 
+    public readonly struct ObjectTouchedEvent
+    {
+        public readonly uint LocalId;
+        public readonly System.Guid FullId;
+        public ObjectTouchedEvent(uint local, System.Guid full) { LocalId = local; FullId = full; }
+    }
+
+    public readonly struct NotificationReceivedEvent
+    {
+        public readonly SLQuest.Core.PendingNotification Notification;
+        public NotificationReceivedEvent(SLQuest.Core.PendingNotification n) => Notification = n;
+    }
+
+    public readonly struct FriendPresenceChangedEvent
+    {
+        public readonly OpenMetaverse.UUID FriendId;
+        public readonly bool IsOnline;
+        public FriendPresenceChangedEvent(OpenMetaverse.UUID id, bool online) { FriendId = id; IsOnline = online; }
+    }
+
     // ── Bus implementation ───────────────────────────────────────────────────
 
     public static class EventBus

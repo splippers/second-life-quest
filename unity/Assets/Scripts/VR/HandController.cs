@@ -17,6 +17,8 @@ namespace SLQuest.VR
     {
         [Header("Setup")]
         [SerializeField] private HandSide side;
+
+        public HandSide Side => side;
         [SerializeField] private LineRenderer pointerRay;
         [SerializeField] private Transform pointerOrigin;
         [SerializeField] private LayerMask interactableLayer;

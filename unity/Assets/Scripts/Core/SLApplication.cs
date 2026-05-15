@@ -10,6 +10,7 @@ using SLQuest.VR;
 using SLQuest.UI;
 using SLQuest.Rendering;
 using SLQuest.Scripting;
+using SLQuest.Social;
 using UnityEngine;
 
 namespace SLQuest.Core
@@ -44,6 +45,8 @@ namespace SLQuest.Core
         [SerializeField] private RenderMaterialsManager renderMaterialsManager;
         [SerializeField] private GestureManager   gestureManager;
         [SerializeField] private AppearanceBaker  appearanceBaker;
+        [SerializeField] private NotificationManager notificationManager;
+        [SerializeField] private FriendManager    friendManager;
 
         // Public accessors so subsystems can find each other without circular deps
         public SLNetworkManager Network => networkManager;
@@ -63,8 +66,10 @@ namespace SLQuest.Core
         public VRUIManager UI => uiManager;
         public GroupChatManager GroupChats => groupChatManager;
         public RenderMaterialsManager RenderMaterials => renderMaterialsManager;
-        public GestureManager   Gestures        => gestureManager;
-        public AppearanceBaker  Baker           => appearanceBaker;
+        public GestureManager    Gestures       => gestureManager;
+        public AppearanceBaker   Baker          => appearanceBaker;
+        public NotificationManager Notifications => notificationManager;
+        public FriendManager     Friends        => friendManager;
 
         private void Awake()
         {
