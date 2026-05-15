@@ -28,6 +28,8 @@ namespace SLQuest.UI
         [SerializeField] private MarketplacePanel marketplacePanelPrefab;
         [SerializeField] private NotificationToast notificationToastPrefab;
         [SerializeField] private IMPanel          imPanelPrefab;
+        [SerializeField] private SearchPanel     searchPanelPrefab;
+        [SerializeField] private VoicePanel      voicePanelPrefab;
 
         [Header("Layout")]
         [SerializeField] private Transform panelRoot;
@@ -48,6 +50,8 @@ namespace SLQuest.UI
         public MarketplacePanel MarketplacePanel { get; private set; }
         public NotificationToast NotificationToast { get; private set; }
         public IMPanel          IMPanel           { get; private set; }
+        public SearchPanel      SearchPanel       { get; private set; }
+        public VoicePanel       VoicePanel        { get; private set; }
 
         private readonly HashSet<MonoBehaviour> _visiblePanels = new();
 
@@ -185,6 +189,20 @@ namespace SLQuest.UI
             SetVisible(MarketplacePanel, true);
         }
 
+        public void ShowSearch()
+        {
+            if (SearchPanel == null && searchPanelPrefab != null)
+                SearchPanel = SpawnPanel(searchPanelPrefab, new Vector3(0f, 0.1f, panelDistance));
+            SetVisible(SearchPanel, true);
+        }
+
+        public void ShowVoice()
+        {
+            if (VoicePanel == null && voicePanelPrefab != null)
+                VoicePanel = SpawnPanel(voicePanelPrefab, new Vector3(0.5f, -0.3f, panelDistance));
+            SetVisible(VoicePanel, true);
+        }
+
         public void ShowIM(OpenMetaverse.UUID agentId = default, string displayName = "")
         {
             if (IMPanel == null && imPanelPrefab != null)
@@ -217,6 +235,8 @@ namespace SLQuest.UI
             SetVisible(GesturePanel,      false);
             SetVisible(MarketplacePanel,  false);
             SetVisible(IMPanel,           false);
+            SetVisible(SearchPanel,       false);
+            SetVisible(VoicePanel,        false);
         }
 
         private void SetVisible(MonoBehaviour panel, bool visible)
