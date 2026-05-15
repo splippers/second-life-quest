@@ -48,8 +48,9 @@ namespace SLQuest.World
                 hc.OnHover += hit =>
                 {
                     var prim = hit.collider.GetComponentInParent<SLPrimitive>();
-                    if (isRight) _rightHovered = prim;
-                    else         _leftHovered  = prim;
+                    if (isRight) { _rightHovered?.GetComponent<HoverHighlight>()?.SetHovered(false); _rightHovered = prim; }
+                    else         { _leftHovered?.GetComponent<HoverHighlight>()?.SetHovered(false);  _leftHovered  = prim; }
+                    prim?.GetComponent<HoverHighlight>()?.SetHovered(true);
                 };
 
                 hc.OnSelect += hit =>
@@ -61,8 +62,8 @@ namespace SLQuest.World
 
                 hc.OnDeselect += () =>
                 {
-                    if (isRight) _rightHovered = null;
-                    else         _leftHovered  = null;
+                    if (isRight) { _rightHovered?.GetComponent<HoverHighlight>()?.SetHovered(false); _rightHovered = null; }
+                    else         { _leftHovered?.GetComponent<HoverHighlight>()?.SetHovered(false);  _leftHovered  = null; }
                 };
             }
         }
