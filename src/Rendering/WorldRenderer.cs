@@ -74,10 +74,12 @@ namespace SLQuest.Rendering
         private DeviceMemory          _fontTexMem;
         private ImageView             _fontTexView;
 
-        // Per-frame dynamic quad buffer for UI geometry (rebuilt in DrawUI each frame)
+        // Per-frame dynamic quad buffer for UI geometry — persistently mapped
         private Buffer       _uiVb;
         private DeviceMemory _uiVbMem;
-        private const int    UiVbCapacity = 4096; // bytes — enough for ~100 quads
+        private void*        _uiMapped    = null;  // persistent host pointer; never unmapped
+        private int          _uiCursor    = 0;     // write cursor in vertices (5 floats each)
+        private const int    UiVbCapacity = 65536; // bytes — ~2600 quads
 
         // White 1×1 texture used when a prim has no texture assigned
         private Silk.NET.Vulkan.Image _whiteTex;
@@ -249,8 +251,16 @@ namespace SLQuest.Rendering
             _vk.Vk.CmdBindVertexBuffers(cmd, 0, 1, &_cubeVb, &zero);
             _vk.Vk.CmdBindIndexBuffer(cmd, _cubeIb, 0, IndexType.Uint32);
 
+            // Build frustum once per draw call — skips off-screen prims entirely.
+            var vp     = ctx.ViewMatrix * ctx.ProjectionMatrix;
+            var planes = ExtractFrustumPlanes(vp);
+
             foreach (var (_, obj) in _objects.Objects)
             {
+                // Bounding sphere: half-diagonal of the scaled unit cube
+                float radius = obj.Scale.Length() * 0.866f;
+                if (!SphereInFrustum(planes, obj.Position, radius)) continue;
+
                 var model = obj.IsAvatar
                     ? CapsuleMatrix(obj.Position, obj.Rotation, obj.Scale)
                     : MathEx.TRS(obj.Position, obj.Rotation, obj.Scale);
@@ -271,6 +281,39 @@ namespace SLQuest.Rendering
 
                 _vk.Vk.CmdDrawIndexed(cmd, (uint)_cubeIndexCount, 1, 0, 0, 0);
             }
+        }
+
+        // ── Frustum culling ───────────────────────────────────────────────────
+
+        // Extracts 6 normalized frustum planes from a combined VP matrix.
+        // System.Numerics is row-major; transform is v' = v * M.
+        // Gribb-Hartmann extraction adapted for Vulkan NDC (z in [0,1]).
+        private static System.Numerics.Plane[] ExtractFrustumPlanes(Matrix4x4 m)
+        {
+            static System.Numerics.Plane MakePlane(float a, float b, float c, float d)
+            {
+                float len = MathF.Sqrt(a*a + b*b + c*c);
+                return new System.Numerics.Plane(a/len, b/len, c/len, d/len);
+            }
+            return
+            [
+                MakePlane(m.M14+m.M11, m.M24+m.M21, m.M34+m.M31, m.M44+m.M41), // left
+                MakePlane(m.M14-m.M11, m.M24-m.M21, m.M34-m.M31, m.M44-m.M41), // right
+                MakePlane(m.M14+m.M12, m.M24+m.M22, m.M34+m.M32, m.M44+m.M42), // bottom
+                MakePlane(m.M14-m.M12, m.M24-m.M22, m.M34-m.M32, m.M44-m.M42), // top
+                MakePlane(        m.M13,         m.M23,         m.M33,         m.M43), // near (Vulkan)
+                MakePlane(m.M14-m.M13, m.M24-m.M23, m.M34-m.M33, m.M44-m.M43), // far
+            ];
+        }
+
+        // Returns false if the sphere is fully outside any frustum plane.
+        private static bool SphereInFrustum(
+            System.Numerics.Plane[] planes, Vector3 center, float radius)
+        {
+            foreach (var p in planes)
+                if (System.Numerics.Plane.DotCoordinate(p, center) < -radius)
+                    return false;
+            return true;
         }
 
         private static Matrix4x4 CapsuleMatrix(Vector3 pos, Quaternion rot, Vector3 scale)
@@ -610,7 +653,7 @@ namespace SLQuest.Rendering
 
         private void CreateUiVertexBuffer()
         {
-            // Pre-allocate a host-visible buffer; contents are overwritten each frame.
+            // Host-coherent, persistently mapped — eliminates per-draw MapMemory/UnmapMemory.
             var bci = new BufferCreateInfo
             {
                 SType       = StructureType.BufferCreateInfo,
@@ -633,6 +676,11 @@ namespace SLQuest.Rendering
             DeviceMemory m;
             _vk.Vk.AllocateMemory(_vk.Device, &mai, null, &m);
             _vk.Vk.BindBufferMemory(_vk.Device, b, m, 0);
+
+            void* ptr;
+            _vk.Vk.MapMemory(_vk.Device, m, 0, UiVbCapacity, 0, &ptr);
+            _uiMapped = ptr;
+
             _uiVb    = b;
             _uiVbMem = m;
         }
@@ -770,6 +818,8 @@ namespace SLQuest.Rendering
 
         private void DrawUI(CommandBuffer cmd, UIManager ui, float w, float h)
         {
+            _uiCursor = 0; // reset per-frame write cursor
+
             // NDC ortho: maps pixel coords (0..w, 0..h) → NDC (-1..1, -1..1)
             // | 2/w   0    0   -1 |
             // |  0   2/h   0   -1 |   (Y not flipped — Vulkan NDC has +Y down already)
@@ -839,17 +889,17 @@ namespace SLQuest.Rendering
             float[] verts, Vector4 color, DescriptorSet ds,
             float scaleU, float scaleV, float offU, float offV)
         {
-            if (verts.Length == 0) return;
-            int byteLen = verts.Length * sizeof(float);
-            if (byteLen > UiVbCapacity) return;
+            if (verts.Length == 0 || _uiMapped == null) return;
+            int byteOffset = _uiCursor * 5 * sizeof(float);
+            int byteLen    = verts.Length * sizeof(float);
+            if (byteOffset + byteLen > UiVbCapacity) return;
 
-            void* mapped;
-            _vk.Vk.MapMemory(_vk.Device, _uiVbMem, 0, (ulong)byteLen, 0, &mapped);
-            new Span<float>(mapped, verts.Length).TryCopyFrom(verts);
-            _vk.Vk.UnmapMemory(_vk.Device, _uiVbMem);
+            // Direct copy to persistently-mapped host-coherent memory — no Map/Unmap.
+            new Span<float>((float*)_uiMapped + _uiCursor * 5, verts.Length)
+                .TryCopyFrom(verts);
 
-            ulong zero = 0;
-            _vk.Vk.CmdBindVertexBuffers(cmd, 0, 1, &_uiVb, &zero);
+            ulong byteOffsetUl = (ulong)byteOffset;
+            _vk.Vk.CmdBindVertexBuffers(cmd, 0, 1, &_uiVb, &byteOffsetUl);
 
             var dsLocal = ds;
             _vk.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics,
@@ -867,6 +917,7 @@ namespace SLQuest.Rendering
                 0, (uint)sizeof(UIPush), &push);
 
             _vk.Vk.CmdDraw(cmd, (uint)(verts.Length / 5), 1, 0, 0);
+            _uiCursor += verts.Length / 5;
         }
 
         private void DrawLoginPanel(CommandBuffer cmd, Matrix4x4 proj,
@@ -1447,6 +1498,11 @@ namespace SLQuest.Rendering
             DestroyBuffer(ref _terrainIb,  ref _terrainIbMem);
             DestroyBuffer(ref _cubeVb,     ref _cubeVbMem);
             DestroyBuffer(ref _cubeIb,     ref _cubeIbMem);
+            if (_uiMapped != null && _uiVbMem.Handle != 0)
+            {
+                _vk.Vk.UnmapMemory(_vk.Device, _uiVbMem);
+                _uiMapped = null;
+            }
             DestroyBuffer(ref _uiVb,       ref _uiVbMem);
 
             if (_uiPipeline.Handle    != 0) _vk.Vk.DestroyPipeline(_vk.Device, _uiPipeline, null);
