@@ -7,6 +7,7 @@ using SLQuest.Chat;
 using SLQuest.Inventory;
 using SLQuest.Building;
 using SLQuest.Voice;
+using SLQuest.Scripting;
 using SLQuest.XR;
 using SLQuest.Rendering;
 using SLQuest.UI;
@@ -40,8 +41,12 @@ namespace SLQuest.Core
         public SwapchainRenderer  Swapchain   { get; }
         public WorldRenderer      WorldRender { get; }
         public UIManager          UI          { get; }
+        public LSLBridge          LSL         { get; }
+        public GestureManager     Gestures    { get; }
 
         private readonly CancellationTokenSource _cts = new();
+        private float _nameRequestAccum;
+        private const float NameRequestInterval = 5f;
         private bool _disposed;
 
         public SLApplication(ILoggerFactory logFactory, XRSession xr, VulkanContext vulkan)
@@ -64,6 +69,17 @@ namespace SLQuest.Core
             Inventory   = new InventoryManager(Network);
             Building    = new BuildingManager(Network, Region);
             Voice       = new VoiceManager(Network);
+            LSL         = new LSLBridge(Network);
+            Gestures    = new GestureManager(Network, Assets);
+
+            // Post-login wiring: fetch inventory root and start avatar name resolution.
+            EventBus.Subscribe<LoginSucceededEvent>(_ =>
+            {
+                Inventory.FetchRootFolder();
+                UI.ShowInWorld();
+                LogFactory.CreateLogger<SLApplication>()
+                          .LogInformation("Login succeeded — inventory fetch started");
+            });
 
             Swapchain   = new SwapchainRenderer(XR, Vulkan);
             WorldRender = new WorldRenderer(Vulkan, Objects, Terrain, Avatars);
@@ -95,7 +111,18 @@ namespace SLQuest.Core
                 if (!waitResult) continue;
 
                 XR.BeginFrame();
-                LocalAvatar.Tick(XR.DeltaTime);
+                float dt = XR.DeltaTime;
+                LocalAvatar.Tick(dt);
+
+                // Request names for any avatars that arrived without one.
+                _nameRequestAccum += dt;
+                if (_nameRequestAccum >= NameRequestInterval)
+                {
+                    _nameRequestAccum = 0f;
+                    Avatars.RequestMissingNames(Network.Client);
+                }
+
+                UI.Tick(dt);
                 EventBus.Flush();
 
                 var views = XR.LocateViews();
