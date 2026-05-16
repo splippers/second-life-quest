@@ -135,8 +135,7 @@ namespace SLQuest.Core
 
         private void RenderScene(in RenderContext ctx)
         {
-            WorldRender.Render(ctx);
-            UI.Render(ctx);
+            WorldRender.Render(ctx, UI);
         }
 
         public void RequestExit() => _cts.Cancel();

@@ -4,6 +4,7 @@ using Silk.NET.Vulkan;
 using SLQuest.Core;
 using SLQuest.World;
 using SLQuest.Avatar;
+using SLQuest.UI;
 using Format = Silk.NET.Vulkan.Format;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -34,6 +35,18 @@ namespace SLQuest.Rendering
         public float     _pad0, _pad1;
     }
 
+    // Mirrors ui.vert / ui.frag push_constant block — 96 bytes
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct UIPush
+    {
+        public Matrix4x4 Transform;   // 64
+        public Vector4   Color;       // 16
+        public float     UvOffsetX;   //  4
+        public float     UvOffsetY;   //  4
+        public float     UvScaleX;    //  4
+        public float     UvScaleY;    //  4
+    }
+
     public sealed unsafe class WorldRenderer : IDisposable
     {
         private readonly VulkanContext  _vk;
@@ -42,13 +55,29 @@ namespace SLQuest.Rendering
         private readonly AvatarManager  _avatars;
         private SwapchainRenderer       _swapchain = null!;
 
-        // Pipeline
+        // World geometry pipeline
         private Pipeline            _pipeline;
         private PipelineLayout      _pipelineLayout;
         private DescriptorSetLayout _descLayout;
         private DescriptorPool      _descPool;
         private DescriptorSet       _whiteDescSet;
         private Sampler             _sampler;
+
+        // UI pipeline (ui.vert / ui.frag) — screen-space, no depth test, alpha blend
+        private Pipeline            _uiPipeline;
+        private PipelineLayout      _uiLayout;
+        private DescriptorSet       _fontDescSet;
+
+        // Bitmap font atlas — 5×7 glyph, 8px wide cell × 12 rows × 8 cols = 64×84 image
+        // Charset: ASCII 32–127 (96 printable chars) in 8-col rows
+        private Silk.NET.Vulkan.Image _fontTex;
+        private DeviceMemory          _fontTexMem;
+        private ImageView             _fontTexView;
+
+        // Per-frame dynamic quad buffer for UI geometry (rebuilt in DrawUI each frame)
+        private Buffer       _uiVb;
+        private DeviceMemory _uiVbMem;
+        private const int    UiVbCapacity = 4096; // bytes — enough for ~100 quads
 
         // White 1×1 texture used when a prim has no texture assigned
         private Silk.NET.Vulkan.Image _whiteTex;
@@ -95,13 +124,15 @@ namespace SLQuest.Rendering
                 AllocWriteWhiteDesc();
                 LoadPipeline();
                 BuildCubeMesh();
-                // Terrain built lazily on first TerrainPatchEvent
+                CreateFontAtlas();
+                LoadUIPipeline();
+                CreateUiVertexBuffer();
             });
 
             EventBus.Subscribe<TerrainPatchEvent>(_ => _terrainDirty = true);
         }
 
-        public void Render(in RenderContext ctx)
+        public void Render(in RenderContext ctx, UIManager? ui = null)
         {
             if (_terrainDirty)
             {
@@ -124,6 +155,9 @@ namespace SLQuest.Rendering
 
             DrawTerrain(cmd, ctx);
             DrawObjects(cmd, ctx);
+
+            if (ui != null)
+                DrawUI(cmd, ui, ctx.Width, ctx.Height);
         }
 
         // ── Terrain ───────────────────────────────────────────────────────────
@@ -293,6 +327,661 @@ namespace SLQuest.Rendering
             CreateBuffer(v,   BufferUsageFlags.VertexBufferBit, out _cubeVb,  out _cubeVbMem);
             CreateBuffer(idx, BufferUsageFlags.IndexBufferBit,  out _cubeIb,  out _cubeIbMem);
             _cubeIndexCount = idx.Length;
+        }
+
+        // ── UI rendering ──────────────────────────────────────────────────────
+
+        // Font: 5×7 glyph bitmap for ASCII 32–127, packed as rows of 5-bit patterns.
+        // Row-major within each glyph. Bit 4 = leftmost pixel column.
+        // 96 chars × 7 rows = 672 bytes. Char index = ascii - 32.
+        private static readonly byte[] _fontBits = BuildFontBits();
+
+        private static byte[] BuildFontBits()
+        {
+            // 5-bit row patterns for each printable ASCII char (32-127).
+            // Columns: 0=space,1=!,2=",3=#,4=$,5=%,6=&,7=',8=(,9=),10=*,11=+,
+            //          12=,,13=-,14=.,15=/,16-25=0-9,26=:,27=;,28=<,29==,30=>,31=?,
+            //          32=@,33-58=A-Z,59=[,60=\,61=],62=^,63=_,
+            //          64=`,65-90=a-z,91={,92=|,93=},94=~,95=DEL(treated as space)
+            // Each char = 7 bytes (one per row, bits 4..0 = cols 0..4).
+            var d = new byte[96 * 7];
+            // Helper to set glyph rows
+            void G(int idx, byte r0,byte r1,byte r2,byte r3,byte r4,byte r5,byte r6)
+            {
+                int b = idx * 7;
+                d[b]=r0; d[b+1]=r1; d[b+2]=r2; d[b+3]=r3; d[b+4]=r4; d[b+5]=r5; d[b+6]=r6;
+            }
+            // space (0)
+            G(0,  0,0,0,0,0,0,0);
+            // ! (1)
+            G(1,  0x04,0x04,0x04,0x04,0x00,0x04,0x00);
+            // " (2)
+            G(2,  0x0A,0x0A,0x00,0x00,0x00,0x00,0x00);
+            // # (3)
+            G(3,  0x0A,0x1F,0x0A,0x0A,0x1F,0x0A,0x00);
+            // $ (4) — simplified
+            G(4,  0x04,0x0F,0x10,0x0E,0x01,0x1E,0x04);
+            // % (5)
+            G(5,  0x11,0x09,0x02,0x04,0x08,0x13,0x11);
+            // & (6)
+            G(6,  0x08,0x14,0x14,0x08,0x15,0x12,0x0D);
+            // ' (7)
+            G(7,  0x04,0x04,0x00,0x00,0x00,0x00,0x00);
+            // ( (8)
+            G(8,  0x02,0x04,0x08,0x08,0x08,0x04,0x02);
+            // ) (9)
+            G(9,  0x08,0x04,0x02,0x02,0x02,0x04,0x08);
+            // * (10)
+            G(10, 0x00,0x04,0x15,0x0E,0x15,0x04,0x00);
+            // + (11)
+            G(11, 0x00,0x04,0x04,0x1F,0x04,0x04,0x00);
+            // , (12)
+            G(12, 0x00,0x00,0x00,0x00,0x04,0x04,0x08);
+            // - (13)
+            G(13, 0x00,0x00,0x00,0x1F,0x00,0x00,0x00);
+            // . (14)
+            G(14, 0x00,0x00,0x00,0x00,0x00,0x04,0x00);
+            // / (15)
+            G(15, 0x01,0x02,0x02,0x04,0x08,0x08,0x10);
+            // 0-9 (16-25) — standard digit bitmaps
+            G(16, 0x0E,0x11,0x13,0x15,0x19,0x11,0x0E); // 0
+            G(17, 0x04,0x0C,0x04,0x04,0x04,0x04,0x0E); // 1
+            G(18, 0x0E,0x11,0x01,0x02,0x04,0x08,0x1F); // 2
+            G(19, 0x1F,0x02,0x04,0x02,0x01,0x11,0x0E); // 3
+            G(20, 0x02,0x06,0x0A,0x12,0x1F,0x02,0x02); // 4
+            G(21, 0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E); // 5
+            G(22, 0x06,0x08,0x10,0x1E,0x11,0x11,0x0E); // 6
+            G(23, 0x1F,0x01,0x02,0x04,0x08,0x08,0x08); // 7
+            G(24, 0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E); // 8
+            G(25, 0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C); // 9
+            // : (26)
+            G(26, 0x00,0x04,0x00,0x00,0x04,0x00,0x00);
+            // ; (27)
+            G(27, 0x00,0x04,0x00,0x00,0x04,0x04,0x08);
+            // < (28)
+            G(28, 0x02,0x04,0x08,0x10,0x08,0x04,0x02);
+            // = (29)
+            G(29, 0x00,0x00,0x1F,0x00,0x1F,0x00,0x00);
+            // > (30)
+            G(30, 0x08,0x04,0x02,0x01,0x02,0x04,0x08);
+            // ? (31)
+            G(31, 0x0E,0x11,0x01,0x02,0x04,0x00,0x04);
+            // @ (32)
+            G(32, 0x0E,0x11,0x17,0x15,0x17,0x10,0x0E);
+            // A-Z (33-58): lifted directly from text_overlay.cpp kFontData columns 0-25
+            byte[] az = {
+                // A           B           C           D           E           F
+                0x0E,0x1E,    0x0E,0x1E,  0x0E,0x11,  0x1E,0x11,  0x1F,0x1F,  0x1F,0x1F,
+                // G           H           I           J           K           L
+                0x0E,0x11,    0x11,0x11,  0x1F,0x04,  0x0F,0x01,  0x11,0x12,  0x10,0x10,
+                // M           N           O           P           Q           R
+                0x11,0x11,    0x11,0x11,  0x0E,0x11,  0x1E,0x11,  0x0E,0x11,  0x1E,0x11,
+                // S           T           U           V           W           X
+                0x0E,0x11,    0x1F,0x04,  0x11,0x11,  0x11,0x11,  0x11,0x11,  0x11,0x11,
+                // Y           Z
+                0x11,0x11,    0x1F,0x01,
+            };
+            // A=33 in our indexing (ASCII 65 → idx = 65-32 = 33)
+            byte[][,] azGlyphs = {
+                // A
+                new byte[,]{{0x0E},{0x11},{0x11},{0x1F},{0x11},{0x11},{0x11}},
+                new byte[,]{{0x1E},{0x11},{0x11},{0x1E},{0x11},{0x11},{0x1E}},
+                new byte[,]{{0x0E},{0x11},{0x10},{0x10},{0x10},{0x11},{0x0E}},
+                new byte[,]{{0x1E},{0x11},{0x11},{0x11},{0x11},{0x11},{0x1E}},
+                new byte[,]{{0x1F},{0x10},{0x10},{0x1E},{0x10},{0x10},{0x1F}},
+                new byte[,]{{0x1F},{0x10},{0x10},{0x1E},{0x10},{0x10},{0x10}},
+                new byte[,]{{0x0E},{0x11},{0x10},{0x17},{0x11},{0x11},{0x0F}},
+                new byte[,]{{0x11},{0x11},{0x11},{0x1F},{0x11},{0x11},{0x11}},
+                new byte[,]{{0x1F},{0x04},{0x04},{0x04},{0x04},{0x04},{0x1F}},
+                new byte[,]{{0x0F},{0x01},{0x01},{0x01},{0x01},{0x11},{0x0E}},
+                new byte[,]{{0x11},{0x12},{0x14},{0x18},{0x14},{0x12},{0x11}},
+                new byte[,]{{0x10},{0x10},{0x10},{0x10},{0x10},{0x10},{0x1F}},
+                new byte[,]{{0x11},{0x1B},{0x15},{0x15},{0x11},{0x11},{0x11}},
+                new byte[,]{{0x11},{0x19},{0x15},{0x13},{0x11},{0x11},{0x11}},
+                new byte[,]{{0x0E},{0x11},{0x11},{0x11},{0x11},{0x11},{0x0E}},
+                new byte[,]{{0x1E},{0x11},{0x11},{0x1E},{0x10},{0x10},{0x10}},
+                new byte[,]{{0x0E},{0x11},{0x11},{0x11},{0x15},{0x12},{0x0D}},
+                new byte[,]{{0x1E},{0x11},{0x11},{0x1E},{0x14},{0x12},{0x11}},
+                new byte[,]{{0x0E},{0x11},{0x10},{0x0E},{0x01},{0x11},{0x0E}},
+                new byte[,]{{0x1F},{0x04},{0x04},{0x04},{0x04},{0x04},{0x04}},
+                new byte[,]{{0x11},{0x11},{0x11},{0x11},{0x11},{0x11},{0x0E}},
+                new byte[,]{{0x11},{0x11},{0x11},{0x11},{0x11},{0x0A},{0x04}},
+                new byte[,]{{0x11},{0x11},{0x11},{0x15},{0x15},{0x1B},{0x11}},
+                new byte[,]{{0x11},{0x11},{0x0A},{0x04},{0x0A},{0x11},{0x11}},
+                new byte[,]{{0x11},{0x11},{0x0A},{0x04},{0x04},{0x04},{0x04}},
+                new byte[,]{{0x1F},{0x01},{0x02},{0x04},{0x08},{0x10},{0x1F}},
+            };
+            for (int i = 0; i < 26; i++)
+            {
+                int idx = 33 + i; // ASCII A=65 → idx 33
+                int b2  = idx * 7;
+                for (int r = 0; r < 7; r++)
+                    d[b2 + r] = azGlyphs[i][r, 0];
+            }
+            // [ (59)
+            G(59, 0x0E,0x08,0x08,0x08,0x08,0x08,0x0E);
+            // \ (60)
+            G(60, 0x10,0x08,0x08,0x04,0x02,0x02,0x01);
+            // ] (61)
+            G(61, 0x0E,0x02,0x02,0x02,0x02,0x02,0x0E);
+            // ^ (62)
+            G(62, 0x04,0x0A,0x11,0x00,0x00,0x00,0x00);
+            // _ (63)
+            G(63, 0x00,0x00,0x00,0x00,0x00,0x00,0x1F);
+            // ` (64)
+            G(64, 0x08,0x04,0x00,0x00,0x00,0x00,0x00);
+            // a-z (65-90): use uppercase bitmaps (caps-only display for v1.0)
+            for (int i = 0; i < 26; i++)
+            {
+                int srcB = (33 + i) * 7;
+                int dstB = (65 + i) * 7;
+                for (int r = 0; r < 7; r++) d[dstB + r] = d[srcB + r];
+            }
+            // { | } ~ (91-94)
+            G(91, 0x02,0x04,0x04,0x08,0x04,0x04,0x02);
+            G(92, 0x04,0x04,0x04,0x04,0x04,0x04,0x04);
+            G(93, 0x08,0x04,0x04,0x02,0x04,0x04,0x08);
+            G(94, 0x00,0x04,0x0A,0x11,0x00,0x00,0x00);
+            G(95, 0,0,0,0,0,0,0); // DEL = blank
+            return d;
+        }
+
+        // Font atlas layout: 96 chars, each 8×8 cell (5×7 glyph + padding)
+        // Atlas: 8 chars per row × 12 rows = 96 chars → 64 wide × 96 tall, R8_UNORM
+        private const int GlyphW = 5, GlyphH = 7, CellW = 8, CellH = 8;
+        private const int AtlasCols = 8, AtlasRows = 12;
+        private const int AtlasW = AtlasCols * CellW, AtlasH = AtlasRows * CellH;
+
+        private void CreateFontAtlas()
+        {
+            // Build pixel data
+            var pixels = new byte[AtlasW * AtlasH];
+            for (int ci = 0; ci < 96; ci++)
+            {
+                int col = ci % AtlasCols, row = ci / AtlasCols;
+                int bx  = col * CellW,    by = row * CellH;
+                for (int py = 0; py < GlyphH; py++)
+                {
+                    byte bits = _fontBits[ci * 7 + py];
+                    for (int px = 0; px < GlyphW; px++)
+                    {
+                        bool lit = (bits >> (4 - px) & 1) != 0;
+                        pixels[(by + py) * AtlasW + (bx + px)] = lit ? (byte)255 : (byte)0;
+                    }
+                }
+            }
+
+            // Upload as VK_FORMAT_R8_UNORM
+            var ici = new ImageCreateInfo
+            {
+                SType       = StructureType.ImageCreateInfo,
+                ImageType   = ImageType.Type2D,
+                Format      = Format.R8Unorm,
+                Extent      = new Extent3D((uint)AtlasW, (uint)AtlasH, 1),
+                MipLevels   = 1,
+                ArrayLayers = 1,
+                Samples     = SampleCountFlags.Count1Bit,
+                Tiling      = ImageTiling.Optimal,
+                Usage       = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+                InitialLayout = ImageLayout.Undefined,
+            };
+            Silk.NET.Vulkan.Image img;
+            _vk.Vk.CreateImage(_vk.Device, &ici, null, &img);
+
+            MemoryRequirements req;
+            _vk.Vk.GetImageMemoryRequirements(_vk.Device, img, &req);
+            var mai = new MemoryAllocateInfo
+            {
+                SType           = StructureType.MemoryAllocateInfo,
+                AllocationSize  = req.Size,
+                MemoryTypeIndex = _vk.FindMemoryType(req.MemoryTypeBits,
+                    MemoryPropertyFlags.DeviceLocalBit),
+            };
+            DeviceMemory mem;
+            _vk.Vk.AllocateMemory(_vk.Device, &mai, null, &mem);
+            _vk.Vk.BindImageMemory(_vk.Device, img, mem, 0);
+
+            CreateBuffer(pixels, BufferUsageFlags.TransferSrcBit,
+                out var staging, out var stagingMem);
+
+            var cb = _vk.BeginOneShot();
+            TransitionImage(cb, img, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+            var region = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                    { AspectMask = ImageAspectFlags.ColorBit, LayerCount = 1 },
+                ImageExtent = new Extent3D((uint)AtlasW, (uint)AtlasH, 1),
+            };
+            _vk.Vk.CmdCopyBufferToImage(cb, staging, img,
+                ImageLayout.TransferDstOptimal, 1, &region);
+            TransitionImage(cb, img, ImageLayout.TransferDstOptimal,
+                ImageLayout.ShaderReadOnlyOptimal);
+            _vk.EndOneShot(cb);
+
+            _vk.Vk.DestroyBuffer(_vk.Device, staging, null);
+            _vk.Vk.FreeMemory(_vk.Device, stagingMem, null);
+
+            var ivci = new ImageViewCreateInfo
+            {
+                SType    = StructureType.ImageViewCreateInfo,
+                Image    = img,
+                ViewType = ImageViewType.Type2D,
+                Format   = Format.R8Unorm,
+                SubresourceRange = new ImageSubresourceRange
+                    { AspectMask = ImageAspectFlags.ColorBit, LevelCount = 1, LayerCount = 1 },
+            };
+            ImageView view;
+            _vk.Vk.CreateImageView(_vk.Device, &ivci, null, &view);
+
+            _fontTex     = img;
+            _fontTexMem  = mem;
+            _fontTexView = view;
+
+            // Allocate and write font descriptor set (reuse existing pool + layout)
+            var layout = _descLayout;
+            var ai = new DescriptorSetAllocateInfo
+            {
+                SType              = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool     = _descPool,
+                DescriptorSetCount = 1,
+                PSetLayouts        = &layout,
+            };
+            DescriptorSet ds;
+            _vk.Vk.AllocateDescriptorSets(_vk.Device, &ai, &ds);
+            _fontDescSet = ds;
+
+            var imgInfo = new DescriptorImageInfo
+            {
+                Sampler     = _sampler,
+                ImageView   = _fontTexView,
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            };
+            var write = new WriteDescriptorSet
+            {
+                SType           = StructureType.WriteDescriptorSet,
+                DstSet          = ds,
+                DstBinding      = 0,
+                DescriptorCount = 1,
+                DescriptorType  = DescriptorType.CombinedImageSampler,
+                PImageInfo      = &imgInfo,
+            };
+            _vk.Vk.UpdateDescriptorSets(_vk.Device, 1, &write, 0, null);
+        }
+
+        private void CreateUiVertexBuffer()
+        {
+            // Pre-allocate a host-visible buffer; contents are overwritten each frame.
+            var bci = new BufferCreateInfo
+            {
+                SType       = StructureType.BufferCreateInfo,
+                Size        = UiVbCapacity,
+                Usage       = BufferUsageFlags.VertexBufferBit,
+                SharingMode = SharingMode.Exclusive,
+            };
+            Buffer b;
+            _vk.Vk.CreateBuffer(_vk.Device, &bci, null, &b);
+
+            MemoryRequirements req;
+            _vk.Vk.GetBufferMemoryRequirements(_vk.Device, b, &req);
+            var mai = new MemoryAllocateInfo
+            {
+                SType           = StructureType.MemoryAllocateInfo,
+                AllocationSize  = req.Size,
+                MemoryTypeIndex = _vk.FindMemoryType(req.MemoryTypeBits,
+                    MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit),
+            };
+            DeviceMemory m;
+            _vk.Vk.AllocateMemory(_vk.Device, &mai, null, &m);
+            _vk.Vk.BindBufferMemory(_vk.Device, b, m, 0);
+            _uiVb    = b;
+            _uiVbMem = m;
+        }
+
+        private void LoadUIPipeline()
+        {
+            var vertSpv = LoadSpirV("ui.vert");
+            var fragSpv = LoadSpirV("ui.frag");
+            var vertMod = CreateShaderModule(vertSpv);
+            var fragMod = CreateShaderModule(fragSpv);
+
+            var pcRange = new PushConstantRange
+            {
+                StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                Size       = (uint)sizeof(UIPush),
+            };
+            var descLayout = _descLayout;
+            var plci = new PipelineLayoutCreateInfo
+            {
+                SType                  = StructureType.PipelineLayoutCreateInfo,
+                SetLayoutCount         = 1,
+                PSetLayouts            = &descLayout,
+                PushConstantRangeCount = 1,
+                PPushConstantRanges    = &pcRange,
+            };
+            PipelineLayout pl;
+            _vk.Vk.CreatePipelineLayout(_vk.Device, &plci, null, &pl);
+            _uiLayout = pl;
+
+            // UI vertex: vec3 pos + vec2 uv = 20 bytes per vertex
+            var vbDesc = new VertexInputBindingDescription
+                { Binding = 0, Stride = 5 * sizeof(float), InputRate = VertexInputRate.Vertex };
+            var attrs = stackalloc VertexInputAttributeDescription[]
+            {
+                new() { Binding=0, Location=0, Format=Format.R32G32B32Sfloat, Offset=0  },
+                new() { Binding=0, Location=1, Format=Format.R32G32Sfloat,    Offset=12 },
+            };
+            var vertexInput = new PipelineVertexInputStateCreateInfo
+            {
+                SType                           = StructureType.PipelineVertexInputStateCreateInfo,
+                VertexBindingDescriptionCount   = 1,
+                PVertexBindingDescriptions      = &vbDesc,
+                VertexAttributeDescriptionCount = 2,
+                PVertexAttributeDescriptions    = attrs,
+            };
+
+            var ia  = new PipelineInputAssemblyStateCreateInfo
+                { SType = StructureType.PipelineInputAssemblyStateCreateInfo, Topology = PrimitiveTopology.TriangleList };
+            var vps = new PipelineViewportStateCreateInfo
+                { SType = StructureType.PipelineViewportStateCreateInfo, ViewportCount = 1, ScissorCount = 1 };
+            var ras = new PipelineRasterizationStateCreateInfo
+                { SType = StructureType.PipelineRasterizationStateCreateInfo,
+                  PolygonMode = PolygonMode.Fill, CullMode = CullModeFlags.None,
+                  FrontFace = FrontFace.CounterClockwise, LineWidth = 1f };
+            var ms2  = new PipelineMultisampleStateCreateInfo
+                { SType = StructureType.PipelineMultisampleStateCreateInfo,
+                  RasterizationSamples = SampleCountFlags.Count1Bit };
+            var ds2  = new PipelineDepthStencilStateCreateInfo
+                { SType = StructureType.PipelineDepthStencilStateCreateInfo,
+                  DepthTestEnable = false, DepthWriteEnable = false };
+            var ba   = new PipelineColorBlendAttachmentState
+            {
+                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit |
+                                 ColorComponentFlags.BBit | ColorComponentFlags.ABit,
+                BlendEnable = true,
+                SrcColorBlendFactor = BlendFactor.SrcAlpha,
+                DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
+                ColorBlendOp        = BlendOp.Add,
+                SrcAlphaBlendFactor = BlendFactor.One,
+                DstAlphaBlendFactor = BlendFactor.Zero,
+                AlphaBlendOp        = BlendOp.Add,
+            };
+            var blnd = new PipelineColorBlendStateCreateInfo
+                { SType = StructureType.PipelineColorBlendStateCreateInfo,
+                  AttachmentCount = 1, PAttachments = &ba };
+            var dyn  = stackalloc DynamicState[] { DynamicState.Viewport, DynamicState.Scissor };
+            var dys  = new PipelineDynamicStateCreateInfo
+                { SType = StructureType.PipelineDynamicStateCreateInfo,
+                  DynamicStateCount = 2, PDynamicStates = dyn };
+
+            Pipeline pipe;
+            fixed (byte* mainName = _mainUtf8)
+            {
+                var stages = stackalloc PipelineShaderStageCreateInfo[]
+                {
+                    new() { SType=StructureType.PipelineShaderStageCreateInfo,
+                            Stage=ShaderStageFlags.VertexBit,   Module=vertMod, PName=mainName },
+                    new() { SType=StructureType.PipelineShaderStageCreateInfo,
+                            Stage=ShaderStageFlags.FragmentBit, Module=fragMod, PName=mainName },
+                };
+                var gpci = new GraphicsPipelineCreateInfo
+                {
+                    SType=StructureType.GraphicsPipelineCreateInfo, StageCount=2, PStages=stages,
+                    PVertexInputState=&vertexInput, PInputAssemblyState=&ia, PViewportState=&vps,
+                    PRasterizationState=&ras, PMultisampleState=&ms2, PDepthStencilState=&ds2,
+                    PColorBlendState=&blnd, PDynamicState=&dys,
+                    Layout=_uiLayout, RenderPass=_swapchain.RenderPass, Subpass=0,
+                };
+                _vk.Vk.CreateGraphicsPipelines(_vk.Device, default, 1, &gpci, null, &pipe);
+            }
+            _uiPipeline = pipe;
+
+            _vk.Vk.DestroyShaderModule(_vk.Device, vertMod, null);
+            _vk.Vk.DestroyShaderModule(_vk.Device, fragMod, null);
+        }
+
+        // Converts ASCII char to (u, v) top-left corner in the font atlas (0..1 range).
+        private static (float u, float v) GlyphUV(char c)
+        {
+            int idx = c >= 32 && c < 128 ? c - 32 : 0;
+            int col = idx % AtlasCols, row = idx / AtlasCols;
+            return (col * CellW / (float)AtlasW, row * CellH / (float)AtlasH);
+        }
+
+        // Emit two triangles (6 floats × 5 = 30 floats) for a screen-space quad.
+        // Coords in pixels; z=0; uv from font atlas if texQuad=true, else 0..1.
+        private static int EmitQuad(float[] buf, int at,
+            float x, float y, float w, float h,
+            float u0, float v0, float u1, float v1)
+        {
+            // Triangle 1: TL, BL, TR
+            // Triangle 2: TR, BL, BR
+            float[] q =
+            {
+                x,   y,   0, u0, v0,
+                x,   y+h, 0, u0, v1,
+                x+w, y,   0, u1, v0,
+                x+w, y,   0, u1, v0,
+                x,   y+h, 0, u0, v1,
+                x+w, y+h, 0, u1, v1,
+            };
+            Array.Copy(q, 0, buf, at, q.Length);
+            return at + q.Length;
+        }
+
+        private void DrawUI(CommandBuffer cmd, UIManager ui, float w, float h)
+        {
+            // NDC ortho: maps pixel coords (0..w, 0..h) → NDC (-1..1, -1..1)
+            // | 2/w   0    0   -1 |
+            // |  0   2/h   0   -1 |   (Y not flipped — Vulkan NDC has +Y down already)
+            // |  0    0    1    0 |
+            // |  0    0    0    1 |
+            var proj = new Matrix4x4(
+                2f/w, 0,    0, 0,
+                0,    2f/h, 0, 0,
+                0,    0,    1, 0,
+               -1f,  -1f,  0, 1);
+
+            _vk.Vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _uiPipeline);
+            var vp = new Viewport(0, 0, w, h, 0, 1);
+            var sc = new Rect2D(default, new Extent2D((uint)w, (uint)h));
+            _vk.Vk.CmdSetViewport(cmd, 0, 1, &vp);
+            _vk.Vk.CmdSetScissor(cmd,  0, 1, &sc);
+
+            if (ui.ActivePanel == UIPanel.Login)
+                DrawLoginPanel(cmd, proj, ui, w, h);
+
+            DrawChatOverlay(cmd, proj, ui, w, h);
+
+            if (ui.NotificationVisible)
+                DrawNotification(cmd, proj, ui, w, h);
+
+            if (ui.DialogVisible)
+                DrawDialog(cmd, proj, ui, w, h);
+        }
+
+        // ── UI draw helpers ───────────────────────────────────────────────────
+
+        private void DrawSolidQuad(CommandBuffer cmd, Matrix4x4 proj,
+            float x, float y, float qw, float qh, Vector4 color)
+        {
+            var verts = new float[6 * 5];
+            EmitQuad(verts, 0, x, y, qw, qh, 0, 0, 1, 1);
+            UploadAndDrawUI(cmd, proj, verts, color, _whiteDescSet,
+                scaleU: 1, scaleV: 1, offU: 0, offV: 0);
+        }
+
+        private void DrawText(CommandBuffer cmd, Matrix4x4 proj,
+            string text, float x, float y, float scale, Vector4 color)
+        {
+            float glyphScaleX = CellW * scale;
+            float glyphScaleH = CellH * scale;
+            float cellUW = CellW / (float)AtlasW;
+            float cellVH = CellH / (float)AtlasH;
+
+            var verts = new float[text.Length * 6 * 5];
+            int at = 0;
+            float cx = x;
+            foreach (char c in text.ToUpperInvariant())
+            {
+                if (c == ' ') { cx += glyphScaleX; continue; }
+                var (u0, v0) = GlyphUV(c);
+                at = EmitQuad(verts, at, cx, y, glyphScaleX, glyphScaleH,
+                              u0, v0, u0 + cellUW, v0 + cellVH);
+                cx += glyphScaleX;
+            }
+            if (at == 0) return;
+
+            UploadAndDrawUI(cmd, proj, verts[..at], color, _fontDescSet,
+                scaleU: 1, scaleV: 1, offU: 0, offV: 0);
+        }
+
+        private void UploadAndDrawUI(CommandBuffer cmd, Matrix4x4 proj,
+            float[] verts, Vector4 color, DescriptorSet ds,
+            float scaleU, float scaleV, float offU, float offV)
+        {
+            if (verts.Length == 0) return;
+            int byteLen = verts.Length * sizeof(float);
+            if (byteLen > UiVbCapacity) return;
+
+            void* mapped;
+            _vk.Vk.MapMemory(_vk.Device, _uiVbMem, 0, (ulong)byteLen, 0, &mapped);
+            new Span<float>(mapped, verts.Length).TryCopyFrom(verts);
+            _vk.Vk.UnmapMemory(_vk.Device, _uiVbMem);
+
+            ulong zero = 0;
+            _vk.Vk.CmdBindVertexBuffers(cmd, 0, 1, &_uiVb, &zero);
+
+            var dsLocal = ds;
+            _vk.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics,
+                _uiLayout, 0, 1, &dsLocal, 0, null);
+
+            var push = new UIPush
+            {
+                Transform = proj,
+                Color     = color,
+                UvScaleX  = scaleU, UvScaleY = scaleV,
+                UvOffsetX = offU,   UvOffsetY = offV,
+            };
+            _vk.Vk.CmdPushConstants(cmd, _uiLayout,
+                ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                0, (uint)sizeof(UIPush), &push);
+
+            _vk.Vk.CmdDraw(cmd, (uint)(verts.Length / 5), 1, 0, 0);
+        }
+
+        private void DrawLoginPanel(CommandBuffer cmd, Matrix4x4 proj,
+            UIManager ui, float w, float h)
+        {
+            float panW = w * 0.5f, panH = h * 0.4f;
+            float panX = (w - panW) * 0.5f, panY = (h - panH) * 0.5f;
+
+            // Dark background panel
+            DrawSolidQuad(cmd, proj, panX, panY, panW, panH,
+                new Vector4(0.05f, 0.05f, 0.08f, 0.90f));
+
+            // Title
+            float scale = 3.5f;
+            float titleW = "SECOND LIFE".Length * CellW * scale;
+            DrawText(cmd, proj, "SECOND LIFE",
+                panX + (panW - titleW) * 0.5f, panY + 20, scale,
+                new Vector4(0.85f, 0.85f, 1.0f, 1.0f));
+
+            // Status line
+            float scale2  = 2f;
+            string status = ui.LoginStatus;
+            if (ui.LoginFailed) status = "ERROR: " + ui.LoginError;
+            float statusW = status.Length * CellW * scale2;
+            var   statusC = ui.LoginFailed
+                ? new Vector4(1f, 0.3f, 0.3f, 1f)
+                : new Vector4(0.6f, 0.9f, 0.6f, 1f);
+            DrawText(cmd, proj, status,
+                panX + (panW - statusW) * 0.5f, panY + panH - 50, scale2, statusC);
+        }
+
+        private void DrawChatOverlay(CommandBuffer cmd, Matrix4x4 proj,
+            UIManager ui, float w, float h)
+        {
+            var chat = ui.RecentChat;
+            if (chat.Count == 0) return;
+
+            float scale = 1.8f;
+            float lineH = CellH * scale + 2f;
+            float chatH = chat.Count * lineH + 8f;
+            float chatW = w * 0.38f;
+            float chatX = 12f, chatY = h - chatH - 12f;
+
+            // Semi-transparent background
+            DrawSolidQuad(cmd, proj, chatX - 4, chatY - 4, chatW + 8, chatH + 8,
+                new Vector4(0, 0, 0, 0.55f));
+
+            for (int i = 0; i < chat.Count; i++)
+            {
+                var (name, msg) = chat[i];
+                string line = name + ": " + msg;
+                if (line.Length > 38) line = line[..37] + "…";
+                DrawText(cmd, proj, line, chatX, chatY + i * lineH, scale,
+                    new Vector4(0.9f, 0.9f, 0.9f, 1f));
+            }
+        }
+
+        private void DrawNotification(CommandBuffer cmd, Matrix4x4 proj,
+            UIManager ui, float w, float h)
+        {
+            float scale = 2.2f;
+            string title = ui.NotificationTitle;
+            string body  = ui.NotificationBody;
+            float boxW   = Math.Max(title.Length, body.Length) * CellW * scale + 24f;
+            float boxH   = CellH * scale * 2 + 20f;
+            float boxX   = (w - boxW) * 0.5f;
+            float boxY   = 30f;
+
+            DrawSolidQuad(cmd, proj, boxX, boxY, boxW, boxH,
+                new Vector4(0.1f, 0.4f, 0.1f, 0.88f));
+
+            DrawText(cmd, proj, title, boxX + 12, boxY + 6, scale,
+                new Vector4(1f, 1f, 0.6f, 1f));
+            DrawText(cmd, proj, body, boxX + 12, boxY + 8 + CellH * scale, scale * 0.8f,
+                new Vector4(0.9f, 0.9f, 0.9f, 1f));
+        }
+
+        private void DrawDialog(CommandBuffer cmd, Matrix4x4 proj,
+            UIManager ui, float w, float h)
+        {
+            float scale = 2f;
+            float dlgW  = w * 0.55f, dlgH = h * 0.45f;
+            float dlgX  = (w - dlgW) * 0.5f, dlgY = (h - dlgH) * 0.5f;
+
+            DrawSolidQuad(cmd, proj, dlgX, dlgY, dlgW, dlgH,
+                new Vector4(0.08f, 0.08f, 0.12f, 0.94f));
+
+            DrawText(cmd, proj, ui.DialogTitle, dlgX + 12, dlgY + 12, scale,
+                new Vector4(0.85f, 0.85f, 1f, 1f));
+
+            // Wrap message into ~30-char lines
+            string msg  = ui.DialogMessage;
+            int    maxW = (int)(dlgW / (CellW * scale * 0.8f));
+            float  ly   = dlgY + 12 + CellH * scale + 8;
+            for (int i = 0; i < msg.Length; i += maxW)
+            {
+                string chunk = msg.Substring(i, Math.Min(maxW, msg.Length - i));
+                DrawText(cmd, proj, chunk, dlgX + 12, ly, scale * 0.8f,
+                    new Vector4(0.8f, 0.8f, 0.8f, 1f));
+                ly += CellH * scale * 0.8f + 2;
+                if (ly > dlgY + dlgH - 40) break;
+            }
+
+            // Buttons row
+            float bx = dlgX + 12, by = dlgY + dlgH - 32;
+            foreach (string btn in ui.DialogButtons)
+            {
+                float bw = btn.Length * CellW * scale + 16f;
+                DrawSolidQuad(cmd, proj, bx, by, bw, 26f,
+                    new Vector4(0.2f, 0.2f, 0.5f, 0.9f));
+                DrawText(cmd, proj, btn, bx + 8, by + 4, scale,
+                    new Vector4(1f, 1f, 1f, 1f));
+                bx += bw + 8;
+                if (bx > dlgX + dlgW - 12) break;
+            }
         }
 
         // ── Vulkan setup ──────────────────────────────────────────────────────
@@ -758,6 +1447,13 @@ namespace SLQuest.Rendering
             DestroyBuffer(ref _terrainIb,  ref _terrainIbMem);
             DestroyBuffer(ref _cubeVb,     ref _cubeVbMem);
             DestroyBuffer(ref _cubeIb,     ref _cubeIbMem);
+            DestroyBuffer(ref _uiVb,       ref _uiVbMem);
+
+            if (_uiPipeline.Handle    != 0) _vk.Vk.DestroyPipeline(_vk.Device, _uiPipeline, null);
+            if (_uiLayout.Handle      != 0) _vk.Vk.DestroyPipelineLayout(_vk.Device, _uiLayout, null);
+            if (_fontTexView.Handle   != 0) _vk.Vk.DestroyImageView(_vk.Device, _fontTexView, null);
+            if (_fontTex.Handle       != 0) _vk.Vk.DestroyImage(_vk.Device, _fontTex, null);
+            if (_fontTexMem.Handle    != 0) _vk.Vk.FreeMemory(_vk.Device, _fontTexMem, null);
 
             if (_pipeline.Handle      != 0) _vk.Vk.DestroyPipeline(_vk.Device, _pipeline, null);
             if (_pipelineLayout.Handle != 0) _vk.Vk.DestroyPipelineLayout(_vk.Device, _pipelineLayout, null);
