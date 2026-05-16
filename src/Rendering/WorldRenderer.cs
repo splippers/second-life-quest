@@ -120,6 +120,11 @@ namespace SLQuest.Rendering
         private DeviceMemory _sphereVbMem, _sphereIbMem;
         private int          _sphereIndexCount;
 
+        // Torus mesh (Torus prims)
+        private Buffer       _torusVb,  _torusIb;
+        private DeviceMemory _torusVbMem, _torusIbMem;
+        private int          _torusIndexCount;
+
         private bool _disposed;
 
         // Terrain colours: simple altitude bands
@@ -153,6 +158,7 @@ namespace SLQuest.Rendering
                 BuildCubeMesh();
                 BuildCylinderMesh();
                 BuildSphereMesh();
+                BuildTorusMesh();
                 CreateFontAtlas();
                 LoadUIPipeline();
                 CreateUiVertexBuffer();
@@ -293,6 +299,8 @@ namespace SLQuest.Rendering
                     needVb = _sphereVb; needIb = _sphereIb; indexCount = _sphereIndexCount;
                 } else if (obj.Shape == SLPrimShape.Cylinder || obj.IsAvatar) {
                     needVb = _cylinderVb; needIb = _cylinderIb; indexCount = _cylinderIndexCount;
+                } else if (obj.Shape == SLPrimShape.Torus) {
+                    needVb = _torusVb; needIb = _torusIb; indexCount = _torusIndexCount;
                 } else {
                     needVb = _cubeVb; needIb = _cubeIb; indexCount = _cubeIndexCount;
                 }
@@ -582,6 +590,66 @@ namespace SLQuest.Rendering
             CreateBuffer(vArr, BufferUsageFlags.VertexBufferBit, out _sphereVb,  out _sphereVbMem);
             CreateBuffer(iArr, BufferUsageFlags.IndexBufferBit,  out _sphereIb,  out _sphereIbMem);
             _sphereIndexCount = iArr.Length;
+        }
+
+        // ── Torus mesh ────────────────────────────────────────────────────────
+
+        private void BuildTorusMesh()
+        {
+            const int   majorSegs = 24;    // segments around the ring
+            const int   minorSegs = 12;    // segments around the tube
+            const float majorR    = 0.5f;  // distance from centre of ring to centre of tube
+            const float minorR    = 0.15f; // tube radius
+
+            var verts   = new List<WorldVertex>();
+            var indices = new List<uint>();
+
+            for (int j = 0; j <= majorSegs; j++)
+            {
+                float phi = 2 * MathF.PI * j / majorSegs;
+                float cosPhi = MathF.Cos(phi), sinPhi = MathF.Sin(phi);
+
+                for (int i = 0; i <= minorSegs; i++)
+                {
+                    float theta = 2 * MathF.PI * i / minorSegs;
+                    float cosTheta = MathF.Cos(theta), sinTheta = MathF.Sin(theta);
+
+                    // Position on torus surface
+                    float x = (majorR + minorR * cosTheta) * cosPhi;
+                    float y =  minorR * sinTheta;
+                    float z = (majorR + minorR * cosTheta) * sinPhi;
+
+                    // Normal = direction from tube centre to surface point
+                    float nx = cosTheta * cosPhi;
+                    float ny = sinTheta;
+                    float nz = cosTheta * sinPhi;
+
+                    verts.Add(new WorldVertex
+                    {
+                        Position = new Vector3(x, y, z),
+                        Normal   = new Vector3(nx, ny, nz),
+                        UV       = new Vector2((float)j / majorSegs, (float)i / minorSegs),
+                    });
+                }
+            }
+
+            int ring = minorSegs + 1;
+            for (int j = 0; j < majorSegs; j++)
+            for (int i = 0; i < minorSegs; i++)
+            {
+                uint tl = (uint)(j       * ring + i);
+                uint tr = (uint)(j       * ring + i + 1);
+                uint bl = (uint)((j + 1) * ring + i);
+                uint br = (uint)((j + 1) * ring + i + 1);
+                indices.Add(tl); indices.Add(bl); indices.Add(tr);
+                indices.Add(tr); indices.Add(bl); indices.Add(br);
+            }
+
+            var vArr = verts.ToArray();
+            var iArr = indices.ToArray();
+            CreateBuffer(vArr, BufferUsageFlags.VertexBufferBit, out _torusVb,  out _torusVbMem);
+            CreateBuffer(iArr, BufferUsageFlags.IndexBufferBit,  out _torusIb,  out _torusIbMem);
+            _torusIndexCount = iArr.Length;
         }
 
         // ── UI rendering ──────────────────────────────────────────────────────
@@ -1058,6 +1126,79 @@ namespace SLQuest.Rendering
 
             if (ui.DialogVisible)
                 DrawDialog(cmd, proj, ui, w, h);
+
+            if (ui.ActivePanel != UIPanel.Login)
+                DrawMinimap(cmd, proj, w, h);
+        }
+
+        private static readonly Vector4 ColMinimapBg  = new(0.05f, 0.07f, 0.12f, 0.78f);
+        private static readonly Vector4 ColMinimapBdr  = new(0.35f, 0.55f, 0.80f, 0.90f);
+        private static readonly Vector4 ColMinimapSelf = new(1.00f, 1.00f, 1.00f, 1.00f);
+        private static readonly Vector4 ColMinimapAv   = new(1.00f, 0.92f, 0.30f, 0.95f);
+        private static readonly Vector4 ColMinimapObj  = new(0.55f, 0.55f, 0.65f, 0.70f);
+
+        private void DrawMinimap(CommandBuffer cmd, Matrix4x4 proj, float w, float h)
+        {
+            const float MapSize  = 120f;  // px
+            const float DotR     = 3.5f;  // dot radius in px
+            const float Range    = 64f;   // world units covered by half the map
+
+            float mx = w - MapSize - 12f; // bottom-right corner with 12px margin
+            float my = 12f;
+
+            // Background panel
+            DrawSolidQuad(cmd, proj, mx, my, MapSize, MapSize, ColMinimapBg);
+            // Border (four 1px-wide lines)
+            DrawSolidQuad(cmd, proj, mx,             my,             MapSize,  1f,     ColMinimapBdr);
+            DrawSolidQuad(cmd, proj, mx,             my + MapSize,   MapSize,  1f,     ColMinimapBdr);
+            DrawSolidQuad(cmd, proj, mx,             my,             1f,       MapSize, ColMinimapBdr);
+            DrawSolidQuad(cmd, proj, mx + MapSize,   my,             1f,       MapSize, ColMinimapBdr);
+
+            var local = SLApplication.Instance?.LocalAvatar;
+            Vector3 center = local?.Position ?? Vector3.Zero;
+
+            float halfMap = MapSize * 0.5f;
+
+            // Helper: world pos → minimap pixel
+            Vector2 WorldToPx(Vector3 wp)
+            {
+                float dx = wp.X - center.X;
+                float dz = wp.Z - center.Z;
+                float px = mx + halfMap + (dx / Range) * halfMap;
+                float py = my + halfMap - (dz / Range) * halfMap; // flip Z: +Z = up on map
+                return new Vector2(px, py);
+            }
+
+            // Draw object dots (grey) — limit to 200 nearest to avoid noise
+            int objDrawn = 0;
+            foreach (var (_, obj) in _objects.Objects)
+            {
+                if (obj.IsAvatar) continue;
+                float dist = (obj.Position - center).LengthSquared();
+                if (dist > Range * Range) continue;
+                if (++objDrawn > 200) break;
+                var p = WorldToPx(obj.Position);
+                DrawSolidQuad(cmd, proj, p.X - DotR * 0.7f, p.Y - DotR * 0.7f,
+                              DotR * 1.4f, DotR * 1.4f, ColMinimapObj);
+            }
+
+            // Draw remote avatar dots (yellow)
+            foreach (var (_, av) in _avatars.Avatars)
+            {
+                float dist = (av.Position - center).LengthSquared();
+                if (dist > Range * Range) continue;
+                var p = WorldToPx(av.Position);
+                DrawSolidQuad(cmd, proj, p.X - DotR, p.Y - DotR,
+                              DotR * 2f, DotR * 2f, ColMinimapAv);
+            }
+
+            // Local avatar dot (white) — always centred
+            DrawSolidQuad(cmd, proj, mx + halfMap - DotR, my + halfMap - DotR,
+                          DotR * 2f, DotR * 2f, ColMinimapSelf);
+
+            // "MAP" label in top-left of the panel
+            DrawText(cmd, proj, "MAP", mx + 4f, my + MapSize - CellH - 4f, 0.9f,
+                     new Vector4(0.65f, 0.80f, 1.00f, 0.85f));
         }
 
         private void DrawAvatarLabels(CommandBuffer cmd, Matrix4x4 proj2D,
@@ -1867,6 +2008,8 @@ namespace SLQuest.Rendering
             DestroyBuffer(ref _cylinderIb,   ref _cylinderIbMem);
             DestroyBuffer(ref _sphereVb,     ref _sphereVbMem);
             DestroyBuffer(ref _sphereIb,     ref _sphereIbMem);
+            DestroyBuffer(ref _torusVb,      ref _torusVbMem);
+            DestroyBuffer(ref _torusIb,      ref _torusIbMem);
             if (_uiMapped != null && _uiVbMem.Handle != 0)
             {
                 _vk.Vk.UnmapMemory(_vk.Device, _uiVbMem);
