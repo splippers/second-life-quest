@@ -178,6 +178,14 @@ namespace SLQuest.Core
         public LandmarkCreatedEvent(OpenMetaverse.UUID id, string n) { ItemId = id; Name = n; }
     }
 
+    public readonly struct WearableChangedEvent { }
+
+    public readonly struct SnapshotSavedEvent
+    {
+        public readonly string FilePath;
+        public SnapshotSavedEvent(string path) => FilePath = path;
+    }
+
     // ── Bus implementation ───────────────────────────────────────────────────
 
     public static class EventBus

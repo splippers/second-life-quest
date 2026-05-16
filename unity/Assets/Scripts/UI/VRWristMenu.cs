@@ -50,6 +50,8 @@ namespace SLQuest.UI
         [SerializeField] private Button gesturesButton;
         [SerializeField] private Button searchButton;
         [SerializeField] private Button voiceButton;
+        [SerializeField] private Button appearanceButton;
+        [SerializeField] private Button snapshotButton;
         [SerializeField] private Button logoutButton;
 
         [Header("Palm detection")]
@@ -77,6 +79,8 @@ namespace SLQuest.UI
             Wire(gesturesButton,    () => VRUIManager.Instance?.ShowGestures());
             Wire(searchButton,      () => VRUIManager.Instance?.ShowSearch());
             Wire(voiceButton,       () => VRUIManager.Instance?.ShowVoice());
+            Wire(appearanceButton,  () => VRUIManager.Instance?.ShowAppearanceEditor());
+            Wire(snapshotButton,    () => VRUIManager.Instance?.ShowSnapshot());
             Wire(logoutButton,      OnLogout);
 
             if (menuRoot != null) menuRoot.SetActive(false);

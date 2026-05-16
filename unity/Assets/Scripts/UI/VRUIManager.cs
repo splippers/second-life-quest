@@ -30,7 +30,9 @@ namespace SLQuest.UI
         [SerializeField] private IMPanel          imPanelPrefab;
         [SerializeField] private SearchPanel     searchPanelPrefab;
         [SerializeField] private VoicePanel      voicePanelPrefab;
-        [SerializeField] private GroupChatPanel  groupChatPanelPrefab;
+        [SerializeField] private GroupChatPanel         groupChatPanelPrefab;
+        [SerializeField] private AppearanceEditorPanel  appearanceEditorPrefab;
+        [SerializeField] private SnapshotPanel          snapshotPanelPrefab;
 
         [Header("Layout")]
         [SerializeField] private Transform panelRoot;
@@ -53,7 +55,9 @@ namespace SLQuest.UI
         public IMPanel          IMPanel           { get; private set; }
         public SearchPanel      SearchPanel       { get; private set; }
         public VoicePanel       VoicePanel        { get; private set; }
-        public GroupChatPanel   GroupChatPanel    { get; private set; }
+        public GroupChatPanel        GroupChatPanel       { get; private set; }
+        public AppearanceEditorPanel AppearanceEditor     { get; private set; }
+        public SnapshotPanel         SnapshotPanel        { get; private set; }
 
         private readonly HashSet<MonoBehaviour> _visiblePanels = new();
 
@@ -212,6 +216,20 @@ namespace SLQuest.UI
             SetVisible(GroupChatPanel, true);
         }
 
+        public void ShowAppearanceEditor()
+        {
+            if (AppearanceEditor == null && appearanceEditorPrefab != null)
+                AppearanceEditor = SpawnPanel(appearanceEditorPrefab, new Vector3(0.5f, 0.1f, panelDistance));
+            SetVisible(AppearanceEditor, true);
+        }
+
+        public void ShowSnapshot()
+        {
+            if (SnapshotPanel == null && snapshotPanelPrefab != null)
+                SnapshotPanel = SpawnPanel(snapshotPanelPrefab, new Vector3(0f, 0.2f, panelDistance));
+            SetVisible(SnapshotPanel, true);
+        }
+
         public void ShowIM(OpenMetaverse.UUID agentId = default, string displayName = "")
         {
             if (IMPanel == null && imPanelPrefab != null)
@@ -247,6 +265,8 @@ namespace SLQuest.UI
             SetVisible(SearchPanel,       false);
             SetVisible(VoicePanel,        false);
             SetVisible(GroupChatPanel,    false);
+            SetVisible(AppearanceEditor,  false);
+            SetVisible(SnapshotPanel,     false);
         }
 
         private void SetVisible(MonoBehaviour panel, bool visible)

@@ -26,7 +26,10 @@ namespace SLQuest.UI
         [SerializeField] private TMP_Text  regionLabel;
         [SerializeField] private TMP_Text  coordLabel;
         [SerializeField] private TMP_Text  balanceLabel;
+        [SerializeField] private TMP_Text  landImpactLabel;
         [SerializeField] private GameObject noFlyIcon;
+        [SerializeField] private GameObject noBuildIcon;
+        [SerializeField] private GameObject noScriptsIcon;
 
         [Header("Position update")]
         [SerializeField] private float coordUpdateSec = 0.5f;
@@ -74,8 +77,22 @@ namespace SLQuest.UI
             if (parcelLabel != null)
                 parcelLabel.text = string.IsNullOrEmpty(p.Name) ? "(unnamed parcel)" : p.Name;
 
-            bool canFly = (p.Flags & ParcelFlags.AllowFly) != 0;
-            if (noFlyIcon != null) noFlyIcon.SetActive(!canFly);
+            // Parcel capacity: SL reports TotalPrims and MaxPrims for the parcel boundary.
+            // SimWide variants cover the whole region. Show parcel-level impact.
+            if (landImpactLabel != null)
+            {
+                int used = p.TotalPrims;
+                int cap  = p.MaxPrims;
+                landImpactLabel.text = cap > 0 ? $"LI {used}/{cap}" : $"LI {used}";
+            }
+
+            bool canFly   = (p.Flags & ParcelFlags.AllowFly)      != 0;
+            bool canBuild = (p.Flags & ParcelFlags.CreateObjects)  != 0;
+            bool canScript= (p.Flags & ParcelFlags.AllowOtherScripts) != 0;
+
+            if (noFlyIcon    != null) noFlyIcon.SetActive(!canFly);
+            if (noBuildIcon  != null) noBuildIcon.SetActive(!canBuild);
+            if (noScriptsIcon != null) noScriptsIcon.SetActive(!canScript);
         }
 
         private void OnBalanceUpdated(BalanceUpdatedEvent e)
