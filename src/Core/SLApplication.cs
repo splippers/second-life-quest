@@ -45,6 +45,7 @@ namespace SLQuest.Core
         public GestureManager     Gestures    { get; }
 
         private readonly CancellationTokenSource _cts = new();
+        private readonly XRInput                 _xrInput;
         private float _nameRequestAccum;
         private const float NameRequestInterval = 5f;
         private bool _disposed;
@@ -86,6 +87,10 @@ namespace SLQuest.Core
             WorldRender.BindSwapchain(Swapchain); // must be called before InitAsync
             UI          = new UIManager(Vulkan, Chat, Inventory, Building, Login,
                                         logFactory.CreateLogger<UIManager>());
+
+            // Wire controller input to LocalAvatar movement
+            _xrInput = new XRInput(xr);
+            LocalAvatar.BindInput(_xrInput);
         }
 
         // ── Frame loop ────────────────────────────────────────────────────────
@@ -150,6 +155,7 @@ namespace SLQuest.Core
             WorldRender.Dispose();
             UI.Dispose();
             Swapchain.Dispose();
+            _xrInput.Dispose();
             Vulkan.Dispose();
             XR.Dispose();
         }

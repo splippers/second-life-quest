@@ -92,10 +92,20 @@ namespace SLQuest.Rendering
         private int          _terrainIndexCount;
         private bool         _terrainDirty = true;
 
-        // Cube mesh (used for all prims)
+        // Cube mesh (Box prims and fallback)
         private Buffer       _cubeVb,  _cubeIb;
         private DeviceMemory _cubeVbMem, _cubeIbMem;
         private int          _cubeIndexCount;
+
+        // Cylinder mesh (Cylinder prims and avatar capsules)
+        private Buffer       _cylinderVb,  _cylinderIb;
+        private DeviceMemory _cylinderVbMem, _cylinderIbMem;
+        private int          _cylinderIndexCount;
+
+        // Sphere mesh (Sphere prims)
+        private Buffer       _sphereVb,  _sphereIb;
+        private DeviceMemory _sphereVbMem, _sphereIbMem;
+        private int          _sphereIndexCount;
 
         private bool _disposed;
 
@@ -126,6 +136,8 @@ namespace SLQuest.Rendering
                 AllocWriteWhiteDesc();
                 LoadPipeline();
                 BuildCubeMesh();
+                BuildCylinderMesh();
+                BuildSphereMesh();
                 CreateFontAtlas();
                 LoadUIPipeline();
                 CreateUiVertexBuffer();
@@ -159,7 +171,7 @@ namespace SLQuest.Rendering
             DrawObjects(cmd, ctx);
 
             if (ui != null)
-                DrawUI(cmd, ui, ctx.Width, ctx.Height);
+                DrawUI(cmd, ui, ctx.Width, ctx.Height, ctx.ViewMatrix * ctx.ProjectionMatrix);
         }
 
         // ── Terrain ───────────────────────────────────────────────────────────
@@ -247,19 +259,34 @@ namespace SLQuest.Rendering
 
         private void DrawObjects(CommandBuffer cmd, in RenderContext ctx)
         {
-            ulong zero = 0;
-            _vk.Vk.CmdBindVertexBuffers(cmd, 0, 1, &_cubeVb, &zero);
-            _vk.Vk.CmdBindIndexBuffer(cmd, _cubeIb, 0, IndexType.Uint32);
-
-            // Build frustum once per draw call — skips off-screen prims entirely.
             var vp     = ctx.ViewMatrix * ctx.ProjectionMatrix;
             var planes = ExtractFrustumPlanes(vp);
 
+            // Track currently-bound mesh to avoid redundant bind calls
+            Buffer curVb = default;
+
             foreach (var (_, obj) in _objects.Objects)
             {
-                // Bounding sphere: half-diagonal of the scaled unit cube
                 float radius = obj.Scale.Length() * 0.866f;
                 if (!SphereInFrustum(planes, obj.Position, radius)) continue;
+
+                // Select geometry based on prim shape
+                Buffer needVb, needIb;
+                int indexCount;
+                if (obj.Shape == SLPrimShape.Sphere) {
+                    needVb = _sphereVb; needIb = _sphereIb; indexCount = _sphereIndexCount;
+                } else if (obj.Shape == SLPrimShape.Cylinder || obj.IsAvatar) {
+                    needVb = _cylinderVb; needIb = _cylinderIb; indexCount = _cylinderIndexCount;
+                } else {
+                    needVb = _cubeVb; needIb = _cubeIb; indexCount = _cubeIndexCount;
+                }
+
+                if (needVb.Handle != curVb.Handle) {
+                    ulong zero = 0;
+                    _vk.Vk.CmdBindVertexBuffers(cmd, 0, 1, &needVb, &zero);
+                    _vk.Vk.CmdBindIndexBuffer(cmd, needIb, 0, IndexType.Uint32);
+                    curVb = needVb;
+                }
 
                 var model = obj.IsAvatar
                     ? CapsuleMatrix(obj.Position, obj.Rotation, obj.Scale)
@@ -279,7 +306,7 @@ namespace SLQuest.Rendering
                     ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
                     0, (uint)sizeof(WorldPush), &push);
 
-                _vk.Vk.CmdDrawIndexed(cmd, (uint)_cubeIndexCount, 1, 0, 0, 0);
+                _vk.Vk.CmdDrawIndexed(cmd, (uint)indexCount, 1, 0, 0, 0);
             }
         }
 
@@ -370,6 +397,165 @@ namespace SLQuest.Rendering
             CreateBuffer(v,   BufferUsageFlags.VertexBufferBit, out _cubeVb,  out _cubeVbMem);
             CreateBuffer(idx, BufferUsageFlags.IndexBufferBit,  out _cubeIb,  out _cubeIbMem);
             _cubeIndexCount = idx.Length;
+        }
+
+        // ── Cylinder mesh ─────────────────────────────────────────────────────
+
+        private void BuildCylinderMesh()
+        {
+            const int   segs = 16;
+            const float r    = 0.5f, h = 0.5f; // unit cylinder: radius=0.5, half-height=0.5
+            var verts   = new List<WorldVertex>();
+            var indices = new List<uint>();
+
+            // Top cap centre
+            int topCtr = verts.Count;
+            verts.Add(new WorldVertex { Position = new(0, h, 0), Normal = Vector3.UnitY, UV = new(0.5f, 0.5f) });
+
+            // Top ring (segs+1 so the last point wraps to 0 for UVs)
+            int topRing = verts.Count;
+            for (int i = 0; i <= segs; i++)
+            {
+                float a = 2 * MathF.PI * i / segs;
+                float x = r * MathF.Cos(a), z = r * MathF.Sin(a);
+                verts.Add(new WorldVertex { Position = new(x, h, z), Normal = Vector3.UnitY,
+                    UV = new(x + 0.5f, z + 0.5f) });
+            }
+
+            // Bottom ring
+            int botRing = verts.Count;
+            for (int i = 0; i <= segs; i++)
+            {
+                float a = 2 * MathF.PI * i / segs;
+                float x = r * MathF.Cos(a), z = r * MathF.Sin(a);
+                verts.Add(new WorldVertex { Position = new(x, -h, z), Normal = -Vector3.UnitY,
+                    UV = new(x + 0.5f, z + 0.5f) });
+            }
+
+            // Bottom cap centre
+            int botCtr = verts.Count;
+            verts.Add(new WorldVertex { Position = new(0, -h, 0), Normal = -Vector3.UnitY, UV = new(0.5f, 0.5f) });
+
+            // Side verts with outward normals (separate from cap verts for correct shading)
+            int sideBase = verts.Count;
+            for (int i = 0; i <= segs; i++)
+            {
+                float a = 2 * MathF.PI * i / segs;
+                float x = r * MathF.Cos(a), z = r * MathF.Sin(a);
+                var n = Vector3.Normalize(new Vector3(x, 0, z));
+                float u = (float)i / segs;
+                verts.Add(new WorldVertex { Position = new(x,  h, z), Normal = n, UV = new(u, 0) });
+                verts.Add(new WorldVertex { Position = new(x, -h, z), Normal = n, UV = new(u, 1) });
+            }
+
+            // Top cap fans
+            for (int i = 0; i < segs; i++)
+            {
+                indices.Add((uint)topCtr);
+                indices.Add((uint)(topRing + i));
+                indices.Add((uint)(topRing + i + 1));
+            }
+
+            // Bottom cap fans (reversed winding for outward normal)
+            for (int i = 0; i < segs; i++)
+            {
+                indices.Add((uint)botCtr);
+                indices.Add((uint)(botRing + i + 1));
+                indices.Add((uint)(botRing + i));
+            }
+
+            // Side quads
+            for (int i = 0; i < segs; i++)
+            {
+                uint tl = (uint)(sideBase + i * 2);
+                uint bl = (uint)(sideBase + i * 2 + 1);
+                uint tr = (uint)(sideBase + (i + 1) * 2);
+                uint br = (uint)(sideBase + (i + 1) * 2 + 1);
+                indices.Add(tl); indices.Add(bl); indices.Add(tr);
+                indices.Add(tr); indices.Add(bl); indices.Add(br);
+            }
+
+            var vArr = verts.ToArray();
+            var iArr = indices.ToArray();
+            CreateBuffer(vArr, BufferUsageFlags.VertexBufferBit, out _cylinderVb,  out _cylinderVbMem);
+            CreateBuffer(iArr, BufferUsageFlags.IndexBufferBit,  out _cylinderIb,  out _cylinderIbMem);
+            _cylinderIndexCount = iArr.Length;
+        }
+
+        // ── Sphere mesh ───────────────────────────────────────────────────────
+
+        private void BuildSphereMesh()
+        {
+            const int stacks = 8, slices = 16;
+            var verts   = new List<WorldVertex>();
+            var indices = new List<uint>();
+
+            // Top pole
+            verts.Add(new WorldVertex { Position = new(0, 0.5f, 0), Normal = Vector3.UnitY, UV = new(0.5f, 0) });
+
+            // Latitude rings (stacks-1 interior rings, poles handled separately)
+            for (int st = 1; st < stacks; st++)
+            {
+                float phi = MathF.PI * st / stacks;
+                float y   = 0.5f * MathF.Cos(phi);
+                float cr  = 0.5f * MathF.Sin(phi);
+                for (int sl = 0; sl <= slices; sl++)
+                {
+                    float theta = 2 * MathF.PI * sl / slices;
+                    float x = cr * MathF.Cos(theta);
+                    float z = cr * MathF.Sin(theta);
+                    var pos = new Vector3(x, y, z);
+                    verts.Add(new WorldVertex
+                    {
+                        Position = pos,
+                        Normal   = Vector3.Normalize(pos),
+                        UV       = new Vector2((float)sl / slices, (float)st / stacks),
+                    });
+                }
+            }
+
+            // Bottom pole
+            int botPole = verts.Count;
+            verts.Add(new WorldVertex { Position = new(0, -0.5f, 0), Normal = -Vector3.UnitY, UV = new(0.5f, 1) });
+
+            int RingStart(int st) => 1 + (st - 1) * (slices + 1);
+
+            // Top cap (pole → first ring)
+            for (int sl = 0; sl < slices; sl++)
+            {
+                indices.Add(0);
+                indices.Add((uint)(RingStart(1) + sl + 1));
+                indices.Add((uint)(RingStart(1) + sl));
+            }
+
+            // Middle quad bands
+            for (int st = 1; st < stacks - 1; st++)
+            {
+                for (int sl = 0; sl < slices; sl++)
+                {
+                    uint tl = (uint)(RingStart(st)     + sl);
+                    uint tr = (uint)(RingStart(st)     + sl + 1);
+                    uint bl = (uint)(RingStart(st + 1) + sl);
+                    uint br = (uint)(RingStart(st + 1) + sl + 1);
+                    indices.Add(tl); indices.Add(bl); indices.Add(tr);
+                    indices.Add(tr); indices.Add(bl); indices.Add(br);
+                }
+            }
+
+            // Bottom cap (last ring → bottom pole)
+            int lastRing = stacks - 1;
+            for (int sl = 0; sl < slices; sl++)
+            {
+                indices.Add((uint)botPole);
+                indices.Add((uint)(RingStart(lastRing) + sl));
+                indices.Add((uint)(RingStart(lastRing) + sl + 1));
+            }
+
+            var vArr = verts.ToArray();
+            var iArr = indices.ToArray();
+            CreateBuffer(vArr, BufferUsageFlags.VertexBufferBit, out _sphereVb,  out _sphereVbMem);
+            CreateBuffer(iArr, BufferUsageFlags.IndexBufferBit,  out _sphereIb,  out _sphereIbMem);
+            _sphereIndexCount = iArr.Length;
         }
 
         // ── UI rendering ──────────────────────────────────────────────────────
@@ -816,15 +1002,11 @@ namespace SLQuest.Rendering
             return at + q.Length;
         }
 
-        private void DrawUI(CommandBuffer cmd, UIManager ui, float w, float h)
+        private void DrawUI(CommandBuffer cmd, UIManager ui, float w, float h, Matrix4x4 worldVp)
         {
             _uiCursor = 0; // reset per-frame write cursor
 
             // NDC ortho: maps pixel coords (0..w, 0..h) → NDC (-1..1, -1..1)
-            // | 2/w   0    0   -1 |
-            // |  0   2/h   0   -1 |   (Y not flipped — Vulkan NDC has +Y down already)
-            // |  0    0    1    0 |
-            // |  0    0    0    1 |
             var proj = new Matrix4x4(
                 2f/w, 0,    0, 0,
                 0,    2f/h, 0, 0,
@@ -837,6 +1019,9 @@ namespace SLQuest.Rendering
             _vk.Vk.CmdSetViewport(cmd, 0, 1, &vp);
             _vk.Vk.CmdSetScissor(cmd,  0, 1, &sc);
 
+            // Avatar name labels float above heads in world space
+            DrawAvatarLabels(cmd, proj, w, h, worldVp);
+
             if (ui.ActivePanel == UIPanel.Login)
                 DrawLoginPanel(cmd, proj, ui, w, h);
 
@@ -847,6 +1032,34 @@ namespace SLQuest.Rendering
 
             if (ui.DialogVisible)
                 DrawDialog(cmd, proj, ui, w, h);
+        }
+
+        private void DrawAvatarLabels(CommandBuffer cmd, Matrix4x4 proj2D,
+            float w, float h, Matrix4x4 worldVp)
+        {
+            foreach (var (_, av) in _avatars.Avatars)
+            {
+                if (string.IsNullOrEmpty(av.Name)) continue;
+
+                // Project a point 2.2m above the avatar's root position
+                var head   = new Vector4(av.Position + new Vector3(0, 2.2f, 0), 1f);
+                var clip   = Vector4.Transform(head, worldVp);
+                if (clip.W <= 0.01f) continue; // behind camera
+
+                float ndcX = clip.X / clip.W;
+                float ndcY = clip.Y / clip.W;
+                if (ndcX < -1.1f || ndcX > 1.1f || ndcY < -1.1f || ndcY > 1.1f) continue;
+
+                float px = (ndcX * 0.5f + 0.5f) * w;
+                float py = (ndcY * 0.5f + 0.5f) * h;
+
+                const float scale = 1.5f;
+                string name  = av.Name.Length > 22 ? av.Name[..22] : av.Name;
+                float  textW = name.Length * CellW * scale;
+                DrawText(cmd, proj2D, name,
+                    px - textW * 0.5f, py - CellH * scale * 0.5f, scale,
+                    new Vector4(1f, 1f, 0.5f, 0.92f));
+            }
         }
 
         // ── UI draw helpers ───────────────────────────────────────────────────
@@ -1494,10 +1707,14 @@ namespace SLQuest.Rendering
 
             _vk.Vk.DeviceWaitIdle(_vk.Device);
 
-            DestroyBuffer(ref _terrainVb,  ref _terrainVbMem);
-            DestroyBuffer(ref _terrainIb,  ref _terrainIbMem);
-            DestroyBuffer(ref _cubeVb,     ref _cubeVbMem);
-            DestroyBuffer(ref _cubeIb,     ref _cubeIbMem);
+            DestroyBuffer(ref _terrainVb,    ref _terrainVbMem);
+            DestroyBuffer(ref _terrainIb,    ref _terrainIbMem);
+            DestroyBuffer(ref _cubeVb,       ref _cubeVbMem);
+            DestroyBuffer(ref _cubeIb,       ref _cubeIbMem);
+            DestroyBuffer(ref _cylinderVb,   ref _cylinderVbMem);
+            DestroyBuffer(ref _cylinderIb,   ref _cylinderIbMem);
+            DestroyBuffer(ref _sphereVb,     ref _sphereVbMem);
+            DestroyBuffer(ref _sphereIb,     ref _sphereIbMem);
             if (_uiMapped != null && _uiVbMem.Handle != 0)
             {
                 _vk.Vk.UnmapMemory(_vk.Device, _uiVbMem);
