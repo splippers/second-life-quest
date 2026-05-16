@@ -10,13 +10,14 @@ namespace SLQuest.World
 
     public sealed class SLObject
     {
-        public uint       LocalId  { get; set; }
-        public Guid       FullId   { get; set; }
-        public Vector3    Position { get; set; }
-        public Quaternion Rotation { get; set; } = Quaternion.Identity;
-        public Vector3    Scale    { get; set; } = Vector3.One;
-        public SLPrimShape Shape   { get; set; }
-        public bool       IsAvatar { get; set; }
+        public uint       LocalId   { get; set; }
+        public Guid       FullId    { get; set; }
+        public Vector3    Position  { get; set; }
+        public Quaternion Rotation  { get; set; } = Quaternion.Identity;
+        public Vector3    Scale     { get; set; } = Vector3.One;
+        public SLPrimShape Shape    { get; set; }
+        public bool       IsAvatar  { get; set; }
+        public Guid       TextureId { get; set; }
     }
 
     public sealed class ObjectManager
@@ -41,13 +42,14 @@ namespace SLQuest.World
             var prim = e.Prim;
             var obj  = _objects.GetOrAdd(prim.LocalID, id => new SLObject { LocalId = id });
 
-            obj.FullId   = prim.ID.Guid;
-            obj.Position = MathEx.SLToWorld(prim.Position);
-            obj.Rotation = MathEx.SLToWorld(prim.Rotation);
+            obj.FullId    = prim.ID.Guid;
+            obj.Position  = MathEx.SLToWorld(prim.Position);
+            obj.Rotation  = MathEx.SLToWorld(prim.Rotation);
             // SL prim Scale is in SL coords (no axis swap needed for scale)
-            obj.Scale    = new Vector3(prim.Scale.X, prim.Scale.Z, prim.Scale.Y);
-            obj.Shape    = ToShape(prim.Type);
-            obj.IsAvatar = false;
+            obj.Scale     = new Vector3(prim.Scale.X, prim.Scale.Z, prim.Scale.Y);
+            obj.Shape     = ToShape(prim.Type);
+            obj.IsAvatar  = false;
+            obj.TextureId = prim.Textures?.DefaultTexture?.TextureID.Guid ?? Guid.Empty;
 
             EventBus.Publish(new ObjectUpdateEvent(prim.LocalID, prim.ID.Guid,
                 obj.Position, obj.Rotation, obj.Scale));
