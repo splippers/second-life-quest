@@ -1,10 +1,12 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Collections.Concurrent;
 using Silk.NET.Vulkan;
 using SLQuest.Core;
 using SLQuest.World;
 using SLQuest.Avatar;
 using SLQuest.UI;
+using SLQuest.Assets;
 using Format = Silk.NET.Vulkan.Format;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -53,7 +55,18 @@ namespace SLQuest.Rendering
         private readonly ObjectManager  _objects;
         private readonly TerrainManager _terrain;
         private readonly AvatarManager  _avatars;
-        private SwapchainRenderer       _swapchain = null!;
+        private readonly AssetManager?  _assets;
+        private SwapchainRenderer       _swapchain = null!
+
+        // Per-texture GPU resources — keyed by SL asset UUID.
+        private sealed class TexEntry
+        {
+            public Silk.NET.Vulkan.Image Img;
+            public DeviceMemory          Mem;
+            public ImageView             View;
+            public DescriptorSet         Desc;
+        }
+        private readonly ConcurrentDictionary<Guid, TexEntry> _texCache = new();;
 
         // World geometry pipeline
         private Pipeline            _pipeline;
@@ -118,9 +131,11 @@ namespace SLQuest.Rendering
         private static readonly Vector4 ColAv    = new(0.40f, 0.65f, 1.00f, 1f);
 
         public WorldRenderer(VulkanContext vk, ObjectManager objects,
-                             TerrainManager terrain, AvatarManager avatars)
+                             TerrainManager terrain, AvatarManager avatars,
+                             AssetManager? assets = null)
         {
-            _vk = vk; _objects = objects; _terrain = terrain; _avatars = avatars;
+            _vk = vk; _objects = objects; _terrain = terrain;
+            _avatars = avatars; _assets = assets;
         }
 
         public void BindSwapchain(SwapchainRenderer sc) => _swapchain = sc;
@@ -163,9 +178,10 @@ namespace SLQuest.Rendering
             _vk.Vk.CmdSetViewport(cmd, 0, 1, &vp);
             _vk.Vk.CmdSetScissor(cmd,  0, 1, &sc);
 
-            var ds = _whiteDescSet;
+            // Terrain always uses the white descriptor (no textures on terrain)
+            var whiteds = _whiteDescSet;
             _vk.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics,
-                _pipelineLayout, 0, 1, &ds, 0, null);
+                _pipelineLayout, 0, 1, &whiteds, 0, null);
 
             DrawTerrain(cmd, ctx);
             DrawObjects(cmd, ctx);
@@ -262,8 +278,8 @@ namespace SLQuest.Rendering
             var vp     = ctx.ViewMatrix * ctx.ProjectionMatrix;
             var planes = ExtractFrustumPlanes(vp);
 
-            // Track currently-bound mesh to avoid redundant bind calls
-            Buffer curVb = default;
+            Buffer       curVb = default;
+            DescriptorSet curDs = default;
 
             foreach (var (_, obj) in _objects.Objects)
             {
@@ -288,6 +304,16 @@ namespace SLQuest.Rendering
                     curVb = needVb;
                 }
 
+                // Bind per-prim texture if available, else white fallback
+                DescriptorSet needDs = (obj.TextureId != Guid.Empty &&
+                    _texCache.TryGetValue(obj.TextureId, out var tex))
+                    ? tex.Desc : _whiteDescSet;
+                if (needDs.Handle != curDs.Handle) {
+                    _vk.Vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics,
+                        _pipelineLayout, 0, 1, &needDs, 0, null);
+                    curDs = needDs;
+                }
+
                 var model = obj.IsAvatar
                     ? CapsuleMatrix(obj.Position, obj.Rotation, obj.Scale)
                     : MathEx.TRS(obj.Position, obj.Rotation, obj.Scale);
@@ -297,7 +323,7 @@ namespace SLQuest.Rendering
                     Model   = model,
                     View    = ctx.ViewMatrix,
                     Proj    = ctx.ProjectionMatrix,
-                    Tint    = obj.IsAvatar ? ColAv : ColPrim,
+                    Tint    = obj.IsAvatar ? ColAv : Vector4.One,
                     Glow    = 0,
                     RepeatU = 1, RepeatV = 1,
                 };
@@ -1248,6 +1274,132 @@ namespace SLQuest.Rendering
             }
         }
 
+        // ── Per-prim texture streaming ────────────────────────────────────────
+
+        // Call once per frame, BEFORE starting the render pass.
+        // Checks AssetManager for any new textures ready to upload and uploads
+        // up to 2 per frame so individual uploads don't stall the frame loop.
+        public void FlushTextureUploads()
+        {
+            if (_assets == null) return;
+            int uploaded = 0;
+            foreach (var (_, obj) in _objects.Objects)
+            {
+                if (obj.TextureId == Guid.Empty) continue;
+                if (_texCache.ContainsKey(obj.TextureId)) continue;
+
+                if (!_assets.TryGet(obj.TextureId, out var td))
+                {
+                    _ = _assets.RequestAsync(obj.TextureId); // start network fetch
+                    continue;
+                }
+
+                if (td == null || td.Rgba.Length == 0) continue;
+                UploadTexture(obj.TextureId, td);
+                if (++uploaded >= 2) break;
+            }
+        }
+
+        private void UploadTexture(Guid id, TextureData td)
+        {
+            uint w = (uint)td.Width, h = (uint)td.Height;
+
+            var ici = new ImageCreateInfo
+            {
+                SType         = StructureType.ImageCreateInfo,
+                ImageType     = ImageType.Type2D,
+                Format        = Format.R8G8B8A8Srgb,
+                Extent        = new Extent3D(w, h, 1),
+                MipLevels     = 1,
+                ArrayLayers   = 1,
+                Samples       = SampleCountFlags.Count1Bit,
+                Tiling        = ImageTiling.Optimal,
+                Usage         = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+                InitialLayout = ImageLayout.Undefined,
+            };
+            Silk.NET.Vulkan.Image img;
+            _vk.Vk.CreateImage(_vk.Device, &ici, null, &img);
+
+            MemoryRequirements req;
+            _vk.Vk.GetImageMemoryRequirements(_vk.Device, img, &req);
+            var mai = new MemoryAllocateInfo
+            {
+                SType           = StructureType.MemoryAllocateInfo,
+                AllocationSize  = req.Size,
+                MemoryTypeIndex = _vk.FindMemoryType(req.MemoryTypeBits,
+                    MemoryPropertyFlags.DeviceLocalBit),
+            };
+            DeviceMemory mem;
+            _vk.Vk.AllocateMemory(_vk.Device, &mai, null, &mem);
+            _vk.Vk.BindImageMemory(_vk.Device, img, mem, 0);
+
+            CreateBuffer(td.Rgba, BufferUsageFlags.TransferSrcBit, out var staging, out var stagMem);
+
+            var cb = _vk.BeginOneShot();
+            TransitionImage(cb, img, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+            var region = new BufferImageCopy
+            {
+                ImageSubresource = new ImageSubresourceLayers
+                    { AspectMask = ImageAspectFlags.ColorBit, LayerCount = 1 },
+                ImageExtent = new Extent3D(w, h, 1),
+            };
+            _vk.Vk.CmdCopyBufferToImage(cb, staging, img, ImageLayout.TransferDstOptimal, 1, &region);
+            TransitionImage(cb, img, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+            _vk.EndOneShot(cb);
+
+            _vk.Vk.DestroyBuffer(_vk.Device, staging, null);
+            _vk.Vk.FreeMemory(_vk.Device, stagMem, null);
+
+            var ivci = new ImageViewCreateInfo
+            {
+                SType    = StructureType.ImageViewCreateInfo,
+                Image    = img,
+                ViewType = ImageViewType.Type2D,
+                Format   = Format.R8G8B8A8Srgb,
+                SubresourceRange = new ImageSubresourceRange
+                    { AspectMask = ImageAspectFlags.ColorBit, LevelCount = 1, LayerCount = 1 },
+            };
+            ImageView view;
+            _vk.Vk.CreateImageView(_vk.Device, &ivci, null, &view);
+
+            var layout = _descLayout;
+            var ai = new DescriptorSetAllocateInfo
+            {
+                SType              = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool     = _descPool,
+                DescriptorSetCount = 1,
+                PSetLayouts        = &layout,
+            };
+            DescriptorSet ds;
+            if (_vk.Vk.AllocateDescriptorSets(_vk.Device, &ai, &ds) != Result.Success)
+            {
+                // Pool exhausted — destroy the image and bail
+                _vk.Vk.DestroyImageView(_vk.Device, view, null);
+                _vk.Vk.DestroyImage(_vk.Device, img, null);
+                _vk.Vk.FreeMemory(_vk.Device, mem, null);
+                return;
+            }
+
+            var imgInfo = new DescriptorImageInfo
+            {
+                Sampler     = _sampler,
+                ImageView   = view,
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            };
+            var write = new WriteDescriptorSet
+            {
+                SType           = StructureType.WriteDescriptorSet,
+                DstSet          = ds,
+                DstBinding      = 0,
+                DescriptorCount = 1,
+                DescriptorType  = DescriptorType.CombinedImageSampler,
+                PImageInfo      = &imgInfo,
+            };
+            _vk.Vk.UpdateDescriptorSets(_vk.Device, 1, &write, 0, null);
+
+            _texCache[id] = new TexEntry { Img = img, Mem = mem, View = view, Desc = ds };
+        }
+
         // ── Vulkan setup ──────────────────────────────────────────────────────
 
         private void CreateSampler()
@@ -1376,12 +1528,12 @@ namespace SLQuest.Rendering
             var size = new DescriptorPoolSize
             {
                 Type            = DescriptorType.CombinedImageSampler,
-                DescriptorCount = 64, // room for many textures later
+                DescriptorCount = 512, // white + font + up to ~510 in-world textures
             };
             var pci = new DescriptorPoolCreateInfo
             {
                 SType         = StructureType.DescriptorPoolCreateInfo,
-                MaxSets       = 64,
+                MaxSets       = 512,
                 PoolSizeCount = 1,
                 PPoolSizes    = &size,
             };
@@ -1721,6 +1873,15 @@ namespace SLQuest.Rendering
                 _uiMapped = null;
             }
             DestroyBuffer(ref _uiVb,       ref _uiVbMem);
+
+            // Texture cache
+            foreach (var (_, e) in _texCache)
+            {
+                if (e.View.Handle != 0) _vk.Vk.DestroyImageView(_vk.Device, e.View, null);
+                if (e.Img.Handle  != 0) _vk.Vk.DestroyImage(_vk.Device, e.Img, null);
+                if (e.Mem.Handle  != 0) _vk.Vk.FreeMemory(_vk.Device, e.Mem, null);
+            }
+            _texCache.Clear();
 
             if (_uiPipeline.Handle    != 0) _vk.Vk.DestroyPipeline(_vk.Device, _uiPipeline, null);
             if (_uiLayout.Handle      != 0) _vk.Vk.DestroyPipelineLayout(_vk.Device, _uiLayout, null);

@@ -83,7 +83,7 @@ namespace SLQuest.Core
             });
 
             Swapchain   = new SwapchainRenderer(XR, Vulkan);
-            WorldRender = new WorldRenderer(Vulkan, Objects, Terrain, Avatars);
+            WorldRender = new WorldRenderer(Vulkan, Objects, Terrain, Avatars, Assets);
             WorldRender.BindSwapchain(Swapchain); // must be called before InitAsync
             UI          = new UIManager(Vulkan, Chat, Inventory, Building, Login,
                                         logFactory.CreateLogger<UIManager>());
@@ -131,6 +131,7 @@ namespace SLQuest.Core
                 EventBus.Flush();
 
                 var views = XR.LocateViews();
+                WorldRender.FlushTextureUploads(); // stream pending SL textures to GPU
                 Swapchain.RenderFrame(views, frameState.PredictedDisplayTime, RenderScene);
                 XR.EndFrame(frameState, Swapchain.ProjectionLayers);
             }
