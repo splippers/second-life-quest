@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ApplicationId>com.slquest.viewer</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <AndroidManifest>../android/app/src/main/AndroidManifest.xml</AndroidManifest>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Trim carefully — LibreMetaverse uses reflection -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- AOT: disabled for LibreMetaverse/MessagePack compat; enable once linker config done -->
+    <RunAOTCompilation>false</RunAOTCompilation>
+  </PropertyGroup>
+
+  <!-- Silk.NET: OpenXR + Vulkan C# bindings (auto-generated from spec, P/Invoke) -->
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenXR"         Version="2.22.0" />
+    <PackageReference Include="Silk.NET.OpenXR.Extensions.EXT"  Version="2.22.0" />
+    <PackageReference Include="Silk.NET.OpenXR.Extensions.FB"   Version="2.22.0" />
+    <PackageReference Include="Silk.NET.OpenXR.Extensions.META" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Vulkan"          Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR"  Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Maths"           Version="2.22.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- LibreMetaverse DLLs (downloaded by tools/fetch_packages.py) -->
+  <ItemGroup>
+    <Reference Include="LibreMetaverse">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/LibreMetaverse.dll</HintPath>
+    </Reference>
+    <Reference Include="LibreMetaverse.Types">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/LibreMetaverse.Types.dll</HintPath>
+    </Reference>
+    <Reference Include="LibreMetaverse.StructuredData">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/LibreMetaverse.StructuredData.dll</HintPath>
+    </Reference>
+    <Reference Include="CoreJ2K">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/CoreJ2K.dll</HintPath>
+    </Reference>
+    <Reference Include="CoreJ2K.Skia">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/CoreJ2K.Skia.dll</HintPath>
+    </Reference>
+    <Reference Include="SkiaSharp">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/SkiaSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="MessagePack">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/MessagePack.dll</HintPath>
+    </Reference>
+    <Reference Include="zlib.net">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/zlib.net.dll</HintPath>
+    </Reference>
+    <Reference Include="OggVorbisEncoder">
+      <HintPath>../unity/Assets/Plugins/LibreMetaverse/OggVorbisEncoder.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Copy native .so files into the APK -->
+  <ItemGroup>
+    <AndroidNativeLibrary Include="../unity/Assets/Plugins/Android/libs/arm64-v8a/libSkiaSharp.so">
+      <Abi>arm64-v8a</Abi>
+    </AndroidNativeLibrary>
+  </ItemGroup>
+
+</Project>

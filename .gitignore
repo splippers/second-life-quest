@@ -1,0 +1,34 @@
+# Build outputs
+bin/
+obj/
+Build/
+*.apk
+*.aab
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/arm64-v8a/libSkiaSharp.so
+
+# .NET
+*.user
+*.suo
+.vs/
+.idea/
+*.DS_Store
+
+# NuGet cache (reproducible via fetch_packages.py)
+/.nuget-cache/
+
+# Unity archive (not needed for builds)
+/unity/[Ll]ibrary/
+/unity/[Tt]emp/
+
+# Generated code (built by build.sh)
+src/Rendering/ShaderBytecode.g.cs
+src/Resources/shaders/
+
+# Credentials
+src/Resources/credentials.json
