@@ -10,14 +10,16 @@ namespace SLQuest.World
 
     public sealed class SLObject
     {
-        public uint       LocalId   { get; set; }
-        public Guid       FullId    { get; set; }
-        public Vector3    Position  { get; set; }
-        public Quaternion Rotation  { get; set; } = Quaternion.Identity;
-        public Vector3    Scale     { get; set; } = Vector3.One;
-        public SLPrimShape Shape    { get; set; }
-        public bool       IsAvatar  { get; set; }
-        public Guid       TextureId { get; set; }
+        public uint       LocalId        { get; set; }
+        public Guid       FullId         { get; set; }
+        public Vector3    Position       { get; set; }
+        public Quaternion Rotation       { get; set; } = Quaternion.Identity;
+        public Vector3    Scale          { get; set; } = Vector3.One;
+        public SLPrimShape Shape         { get; set; }
+        public bool       IsAvatar       { get; set; }
+        public Guid       TextureId      { get; set; }
+        public string     HoverText      { get; set; } = string.Empty;
+        public Vector3    HoverTextColor { get; set; } = Vector3.One;  // RGB, each 0..1
     }
 
     public sealed class ObjectManager
@@ -50,6 +52,11 @@ namespace SLQuest.World
             obj.Shape     = ToShape(prim.Type);
             obj.IsAvatar  = false;
             obj.TextureId = prim.Textures?.DefaultTexture?.TextureID.Guid ?? Guid.Empty;
+
+            // Hover text (llSetText) — empty string means no label
+            obj.HoverText = prim.Text ?? string.Empty;
+            if (prim.TextColor is { } tc)
+                obj.HoverTextColor = new Vector3(tc.R, tc.G, tc.B);
 
             EventBus.Publish(new ObjectUpdateEvent(prim.LocalID, prim.ID.Guid,
                 obj.Position, obj.Rotation, obj.Scale));

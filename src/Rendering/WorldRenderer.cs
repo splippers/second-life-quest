@@ -1115,6 +1115,8 @@ namespace SLQuest.Rendering
 
             // Avatar name labels float above heads in world space
             DrawAvatarLabels(cmd, proj, w, h, worldVp);
+            // llSetText hover text floats above objects
+            DrawHoverTexts(cmd, proj, w, h, worldVp);
 
             if (ui.ActivePanel == UIPanel.Login)
                 DrawLoginPanel(cmd, proj, ui, w, h);
@@ -1226,6 +1228,54 @@ namespace SLQuest.Rendering
                 DrawText(cmd, proj2D, name,
                     px - textW * 0.5f, py - CellH * scale * 0.5f, scale,
                     new Vector4(1f, 1f, 0.5f, 0.92f));
+            }
+        }
+
+        private void DrawHoverTexts(CommandBuffer cmd, Matrix4x4 proj2D,
+            float w, float h, Matrix4x4 worldVp)
+        {
+            const float MaxDist  = 30f;   // SL hover text fades beyond ~30m; skip past that
+            const float Scale    = 1.2f;
+            const int   MaxChars = 40;
+            const float YLift    = 0.25f; // extra metres above the top surface
+
+            var local = SLApplication.Instance?.LocalAvatar;
+            Vector3 eye = local?.Position ?? Vector3.Zero;
+
+            foreach (var (_, obj) in _objects.Objects)
+            {
+                if (string.IsNullOrWhiteSpace(obj.HoverText)) continue;
+                if (obj.IsAvatar) continue;
+
+                // Lift the label above the object's bounding box top
+                float topY = obj.Position.Y + obj.Scale.Y * 0.5f + YLift;
+                var   labelPos = new Vector4(obj.Position.X, topY, obj.Position.Z, 1f);
+
+                // Distance cull
+                float dist = (obj.Position - eye).Length();
+                if (dist > MaxDist) continue;
+
+                // World → clip
+                var clip = Vector4.Transform(labelPos, worldVp);
+                if (clip.W <= 0.01f) continue;
+
+                float ndcX = clip.X / clip.W;
+                float ndcY = clip.Y / clip.W;
+                if (ndcX < -1.1f || ndcX > 1.1f || ndcY < -1.1f || ndcY > 1.1f) continue;
+
+                float px = (ndcX * 0.5f + 0.5f) * w;
+                float py = (ndcY * 0.5f + 0.5f) * h;
+
+                // Fade alpha with distance: full until 15m, then taper to 0 at MaxDist
+                float alpha = dist < 15f ? 0.92f
+                            : 0.92f * (1f - (dist - 15f) / (MaxDist - 15f));
+
+                string text  = obj.HoverText.Length > MaxChars
+                             ? obj.HoverText[..MaxChars] : obj.HoverText;
+                var    color = new Vector4(obj.HoverTextColor, alpha);
+                float  textW = text.Length * CellW * Scale;
+                DrawText(cmd, proj2D, text,
+                    px - textW * 0.5f, py - CellH * Scale * 0.5f, Scale, color);
             }
         }
 
